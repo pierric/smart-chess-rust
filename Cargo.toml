@@ -1,0 +1,12 @@
+[package]
+name = "smartchess"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { version = "0.20.0", features = ["auto-initialize"] }
+numpy = "0.20.0"
+ndarray = "0.15.6"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+recursive_reference = "0.3.0"
