@@ -3,7 +3,7 @@ use pyo3::types::IntoPyDict;
 use crate::chess::{Move, EncodeError, PieceType};
 
 
-fn encode(mov: Move) -> Result<i32, EncodeError> {
+pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
     let is_queen_move_promotion = mov.promotion.is_none() | (mov.promotion == Some(PieceType::Queen));
     let delta0 = mov.to.rank - mov.from.rank;
     let delta1 = mov.to.file - mov.from.file;

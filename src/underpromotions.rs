@@ -11,7 +11,7 @@ const _PROMOTIONS: [(Option<PieceType>, i32); 3] = [
 
 const _TYPE_OFFSET: i32 = 64;
 
-fn encode(mov: Move) -> Result<i32, EncodeError>  {
+pub fn encode(mov: &Move) -> Result<i32, EncodeError>  {
     let _promotions = HashMap::from(_PROMOTIONS);
 
     let is_underpromotion =

@@ -1,3 +1,4 @@
+use std::ptr::NonNull;
 use std::iter::Sum;
 use recursive_reference::*;
 use rand::thread_rng;
@@ -8,7 +9,8 @@ pub struct Node<T> {
     pub step: T,
     pub q_value: f32,
     pub num_act: i32,
-    children: Vec<Box<Node<T>>>,
+    pub parent: Option<NonNull<Node<T>>>,
+    pub children: Vec<Box<Node<T>>>,
 }
 
 fn uct(sqrt_total_num_vis: f32, prior: f32, move_q: f32, move_n_act:i32, reverse_q: bool, cpuct: f32) -> f32 {
@@ -27,10 +29,10 @@ fn find_max<T>(collection: T) -> Option<usize> where T: Iterator, T::Item: Parti
     return collection.enumerate().max_by(|u, v| u.1.partial_cmp(&v.1).unwrap()).map(|p| p.0);
 }
 
-fn backward<T>(ptr: &mut RecRef<Node<T>>, reward: f32) {
+fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32) {
     loop {
         ptr.q_value += reward;
-        if RecRef::pop(ptr).is_none() {
+        if RecRef::pop(&mut ptr).is_none() {
             break;
         }
     }
@@ -39,8 +41,9 @@ fn backward<T>(ptr: &mut RecRef<Node<T>>, reward: f32) {
 }
 
 impl<T> Node<T> {
-    fn select<G>(& mut self, game: &G, reverse_q: bool, cpuct: f32) -> (RecRef<Node<T>>, f32)
-        where G: Game<T> {
+
+    fn select<G>(&mut self, game: &G, reverse_q: bool, cpuct: f32)
+        -> (RecRef<Node<T>>, Vec<T>, f32) where G: Game<T> {
         //Descend in the tree until some leaf, exploiting the knowledge to choose
         //the best child each time.
         let mut ptr: RecRef<Node<T>> = RecRef::new(self);
@@ -50,19 +53,7 @@ impl<T> Node<T> {
             let (moves, prior, outcome) = game.predict(&*ptr, false);
 
             if ptr.children.is_empty() {
-                // reaching a leaf node, either game is done, or it isn't finished, then
-                // we expand the node (in the future if ever chosen the same node, will go
-                // one level deeper). In both case, the predicted outcome is the result.
-                for step in moves {
-                    ptr.children.push(Box::new(Node {
-                        step: step,
-                        q_value: 0.,
-                        num_act: 0,
-                        children: Vec::new(),
-                    }))
-                }
-
-                return (ptr, outcome)
+                return (ptr, moves, outcome)
             }
 
             // otherwise, explore by the predicted distrubtion + the Dir(0.03) noise
@@ -71,11 +62,11 @@ impl<T> Node<T> {
             let prior_rand = prior.into_iter()
                 .zip(dir.sample(&mut thread_rng()))
                 .map(|(p, n)| p * 0.75 + n * 0.25);
-            let sqrt_total_num_vis = f32::sqrt(i32::sum(ptr.children.iter().map(|c| c.num_act)) as f32);
+            let sqrt_total_num_vis = f32::sqrt(i32::sum(ptr.children.iter().map(
+                |c| c.num_act)) as f32);
             let uct_children: Vec<f32> = prior_rand.zip(ptr.children.iter()).map(
-                |(prior, child)| {
+                |(prior, child)|
                     uct(sqrt_total_num_vis, prior, child.q_value, child.num_act, reverse_q, cpuct)
-                }
             ).collect();
             RecRef::extend(
                 &mut ptr,
@@ -85,14 +76,25 @@ impl<T> Node<T> {
         }
     }
 
-    pub fn mcts<G>(&mut self, game: &G, n_rollout: i32, reverse_q: bool, cpuct: Option<f32>)
+    fn mcts<G>(&mut self, game: &G, n_rollout: i32, reverse_q: bool, cpuct: Option<f32>)
         where G: Game<T> {
-        const CPUCT: f32 = 1.2;
-        let cpuct = cpuct.unwrap_or(CPUCT);
+        let DEFAULT_CPUCT: f32 = 1.2;
+        let cpuct = cpuct.unwrap_or(DEFAULT_CPUCT);
 
         for _ in 0..n_rollout {
-            let (mut path, reward) = self.select(game, reverse_q, cpuct);
-            backward(&mut path, reward);
-        }
+            let (mut path, moves, reward) = self.select(game, reverse_q, cpuct);
+
+            // path points at a leaf node, either game is done, or it isn't finished
+            path.children = moves.into_iter().map(
+                |step| Box::new(Node {
+                    step: step,
+                    q_value: 0.,
+                    num_act: 0,
+                    parent: Some(NonNull::from(&*path)),
+                    children: Vec::new(),
+                })).collect();
+
+            backward(path, reward);
+        };
     }
 }

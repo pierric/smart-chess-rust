@@ -17,7 +17,7 @@ const _DIRECTIONS: [((i32, i32), i32); 8] = [
 
 const _TYPE_OFFSET: i32 = 56;
 
-fn encode(mov: Move) -> Result<i32, EncodeError> {
+pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
     let delta = (mov.to.rank - mov.from.rank, mov.to.file - mov.from.file);
     let _directions = HashMap::from(_DIRECTIONS);
 
