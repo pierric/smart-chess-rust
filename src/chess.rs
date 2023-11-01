@@ -1,11 +1,12 @@
 use std::fmt;
 use std::ops::Not;
 use std::collections::VecDeque;
-use pyo3::prelude::{PyErr, Py, PyAny, FromPyObject, Python};
+use pyo3::prelude::*;
+use pyo3::types::*;
 use pyo3::conversion::IntoPy;
 use pyo3::intern;
 use ndarray::{Array3, Ix3, s};
-use crate::{knightmoves, queenmoves, underpromotions};
+use crate::{knightmoves, queenmoves, underpromotions, game};
 
 #[derive(Debug)]
 pub enum EncodeError {
@@ -15,10 +16,12 @@ pub enum EncodeError {
     NotPromotion,
 }
 
+#[derive(Copy, Clone)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
     pub promotion: Option<PieceType>,
+    pub drop: Option<PieceType>,
 }
 
 #[derive(Copy, Clone)]
@@ -50,22 +53,25 @@ pub struct Piece {
     pub color: Color,
 }
 
-pub struct Board<'a> {
-    py_object: &'a PyAny,
+pub struct Board {
+    pub last_move: Option<Move>,
     pub turn: Color,
+    pub piece_map: Vec<(Square, Piece)>,
+    pub repetition2: bool,
+    pub repetition3: bool,
     pub halfmove_clock: u32,
     pub fullmove_number: u32,
+    pub has_kingside_castling_rights: (bool, bool),
+    pub has_queenside_castling_rights: (bool, bool),
 }
 
-pub struct BoardHistoryState {
-    piece_map: Vec<(Square, Piece)>,
-    repetition2: bool,
-    repetition3: bool,
+pub struct BoardState {
+    python_object: Py<PyAny>,
 }
 
 pub struct BoardHistory {
     pub size: usize,
-    pub history: VecDeque<BoardHistoryState>,
+    pub history: VecDeque<&Board>,
 }
 
 impl From<i32> for PieceType {
@@ -109,6 +115,12 @@ impl<'a> FromPyObject<'a> for PieceType {
     }
 }
 
+impl IntoPy<Py<PyAny>> for PieceType {
+    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+        (self as i32).into_py(py)
+    }
+}
+
 impl<'a> FromPyObject<'a> for Color {
     fn extract(obj: &PyAny) -> Result<Self, PyErr> {
         return obj.extract::<i32>().map(|v| v.into());
@@ -128,7 +140,28 @@ impl<'a> FromPyObject<'a> for Move {
         let from = obj.getattr(intern!(py, "from_square")).and_then(|o| o.extract())?;
         let to = obj.getattr(intern!(py, "to_square")).and_then(|o| o.extract())?;
         let promotion = obj.getattr(intern!(py, "promotion")).and_then(|o| o.extract())?;
-        return Ok(Move {from, to, promotion});
+        let drop = obj.getattr(intern!(py, "drop")).and_then(|o| o.extract())?;
+        return Ok(Move {from, to, promotion, drop});
+    }
+}
+
+impl IntoPy<Py<PyAny>> for Move {
+    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+        let from = self.from.into_py(py);
+        let to = self.to.into_py(py);
+        let promotion = match self.promotion {
+            None => py.None(),
+            Some(pt) => pt.into_py(py),
+        };
+        let drop = match self.drop {
+            None => py.None(),
+            Some(pt) => pt.into_py(py),
+        };
+        py.import("chess")
+            .and_then(|chess| chess.getattr("Move"))
+            .and_then(|mov| mov.call1((from, to, promotion, drop)))
+            .unwrap()
+            .into_py(py)
     }
 }
 
@@ -141,17 +174,66 @@ impl<'a> FromPyObject<'a> for Square {
     }
 }
 
-impl<'a> FromPyObject<'a> for Board<'a>{
-    fn extract(obj: &'a PyAny) -> Result<Self, PyErr> {
+impl IntoPy<Py<PyAny>> for Square {
+    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+        py.import("chess")
+            .and_then(|chess| chess.getattr("square"))
+            .and_then(|square| square.call1((self.rank, self.file)))
+            .unwrap()
+            .into_py(py)
+    }
+}
+
+impl<'a> FromPyObject<'a> for Board {
+    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
         let py = obj.py();
-        let turn = obj.getattr(intern!(py, "turn"))?.extract()?;
+
+        let turn: i32 = obj.getattr(intern!(py, "turn"))?.extract()?;
+        let turn: Color = turn.into();
         let halfmove_clock = obj.getattr(intern!(py, "halfmove_clock"))?.extract()?;
         let fullmove_number = obj.getattr(intern!(py, "fullmove_number"))?.extract()?;
+        let piece_map: &PyDict = obj.call_method0(intern!(py, "piece_map"))
+            .and_then(|any: &PyAny| any.downcast().map_err(PyErr::from))?;
+        let piece_map = piece_map.iter().map(
+            |(square, piece)| {
+                (square.extract().unwrap(), piece.extract().unwrap())
+            }).collect();
+        let repetition2 = obj
+            .call_method1(intern!(py, "is_repetition"), (2,))?
+            .extract()?;
+        let repetition3 = obj
+            .call_method1(intern!(py, "is_repetition"), (3,))?
+            .extract()?;
+        let kingside_castling_1 = obj
+            .call_method1(intern!(py, "has_kingside_castling_rights"), (turn,))?
+            .extract()?;
+        let kingside_castling_2 = obj
+            .call_method1(intern!(py, "has_kingside_castling_rights"), (!turn,))?
+            .extract()?;
+        let queenside_castling_1 = obj
+            .call_method1(intern!(py, "has_queenside_castling_rights"), (turn,))?
+            .extract()?;
+        let queenside_castling_2 = obj
+            .call_method1(intern!(py, "has_queenside_castling_rights"), (!turn,))?
+            .extract()?;
+
+        let last_move = if fullmove_number == 1 || turn == Color::White {
+            None
+        } else {
+            let mov = obj.call_method0(intern!(py, "peek")).unwrap().extract()?;
+            Some(mov)
+        };
+
         return Ok(Board {
-            py_object: obj,
+            last_move,
             turn,
+            piece_map,
             halfmove_clock,
             fullmove_number,
+            repetition2,
+            repetition3,
+            has_kingside_castling_rights: (kingside_castling_1, kingside_castling_2),
+            has_queenside_castling_rights: (queenside_castling_1, queenside_castling_2),
         })
     }
 }
@@ -187,7 +269,7 @@ impl Move {
     pub fn rotate(&self) -> Self {
         let from = self.from.rotate();
         let to = self.to.rotate();
-        return Self {from, to, promotion: self.promotion}
+        return Self {from, to, promotion: self.promotion, drop: self.drop}
     }
 
     pub fn encode(&self) -> i32 {
@@ -199,43 +281,33 @@ impl Move {
     }
 }
 
-impl<'a> Board<'a> {
-    pub fn piece_map(&self) -> Vec<(Square, Piece)> {
-        return self.py_object.call_method0(
-            intern!(self.py_object.py(), "square_piece")
-        ).unwrap().extract().unwrap()
+impl Board {
+    fn rotate(&self) -> Self {
+        let piece_map = self.piece_map.iter().map(|(square, piece)| {
+            let square = square.rotate();
+            let piece = Piece {piece_type: piece.piece_type, color: !piece.color};
+            return (square, piece);
+        }).collect();
+
+        let swap = |(a, b)| (b, a);
+
+        return Self {
+            last_move: self.last_move,
+            turn: !self.turn,
+            piece_map,
+            repetition2: self.repetition2,
+            repetition3: self.repetition3,
+            halfmove_clock: self.halfmove_clock,
+            fullmove_number: self.fullmove_number,
+            has_kingside_castling_rights: swap(self.has_kingside_castling_rights),
+            has_queenside_castling_rights: swap(self.has_queenside_castling_rights),
+        };
     }
 
-    pub fn legal_moves(&self) -> Vec<Move> {
-        return self.py_object.getattr(
-            intern!(self.py_object.py(), "legal_moves")
-        ).unwrap().extract().unwrap()
-    }
-
-    pub fn is_repetition(&self, count: i32) -> bool {
-        return self.py_object.call_method1(
-            intern!(self.py_object.py(), "is_repetition"), (count,)
-         ).unwrap().extract().unwrap()
-    }
-
-    pub fn has_kingside_castling_rights(&self, turn: Color) -> bool {
-        return self.py_object.call_method1(
-            intern!(self.py_object.py(), "has_kingside_castling_rights"),
-            (turn,)
-        ).unwrap().extract().unwrap()
-    }
-
-    pub fn has_queenside_castling_rights(&self, turn: Color) -> bool {
-        return self.py_object.call_method1(
-            intern!(self.py_object.py(), "has_queenside_castling_rights"),
-            (turn,)
-        ).unwrap().extract().unwrap()
-    }
-
-    fn _encode_board_state(state: &BoardHistoryState) -> Array3<u32> {
+    fn encode_pieces(&self) -> Array3<u32> {
         let mut array = Array3::<u32>::zeros((8, 8, 14));
 
-        for (square, piece) in state.piece_map.iter() {
+        for (square, piece) in self.piece_map.iter() {
             let piece_type = piece.piece_type;
             let color = piece.color;
 
@@ -255,50 +327,81 @@ impl<'a> Board<'a> {
             array[Ix3(rank, file, (idx + offset).try_into().unwrap())] = 1;
         }
         // Repetition counters
-        array.slice_mut(s![.., .., 12]).fill(state.repetition2 as u32);
-        array.slice_mut(s![.., .., 13]).fill(state.repetition3 as u32);
+        array.slice_mut(s![.., .., 12]).fill(self.repetition2 as u32);
+        array.slice_mut(s![.., .., 13]).fill(self.repetition3 as u32);
 
         return array
-    }
-
-    pub fn get_state(&self) -> BoardHistoryState {
-        let piece_map = self.piece_map();
-        let repetition2 = self.is_repetition(2);
-        let repetition3 = self.is_repetition(3);
-        return BoardHistoryState {piece_map, repetition2, repetition3}
-    }
-
-    pub fn encode_pieces(&self) -> Array3<u32> {
-        let state = self.get_state();
-        return Board::_encode_board_state(&state);
     }
 
     pub fn encode_meta(&self) -> Array3<u32> {
         let mut meta = Array3::<u32>::zeros((8, 8, 7));
         meta.slice_mut(s![.., .., 0]).fill(self.turn as u32);
         meta.slice_mut(s![.., .., 1]).fill(self.fullmove_number);
-        meta.slice_mut(s![.., .., 2]).fill(self.has_kingside_castling_rights(self.turn) as u32);
-        meta.slice_mut(s![.., .., 3]).fill(self.has_queenside_castling_rights(self.turn) as u32);
-        meta.slice_mut(s![.., .., 4]).fill(self.has_kingside_castling_rights(!self.turn) as u32);
-        meta.slice_mut(s![.., .., 5]).fill(self.has_queenside_castling_rights(!self.turn) as u32);
+        meta.slice_mut(s![.., .., 2]).fill(self.has_kingside_castling_rights.0 as u32);
+        meta.slice_mut(s![.., .., 3]).fill(self.has_queenside_castling_rights.0 as u32);
+        meta.slice_mut(s![.., .., 4]).fill(self.has_kingside_castling_rights.1 as u32);
+        meta.slice_mut(s![.., .., 5]).fill(self.has_queenside_castling_rights.1 as u32);
         meta.slice_mut(s![.., .., 6]).fill(self.halfmove_clock);
         return meta
     }
 }
 
-impl BoardHistoryState {
-    fn rotate(&self) -> Self {
-        let piece_map = self.piece_map.iter().map(|(square, piece)| {
-            let square = square.rotate();
-            let piece = Piece {piece_type: piece.piece_type, color: !piece.color};
-            return (square, piece);
-        }).collect();
-        return BoardHistoryState {
-            piece_map,
-            repetition2: self.repetition2,
-            repetition3: self.repetition3
-        };
+impl BoardState {
+    pub fn new() -> Self {
+        Python::with_gil(|py| {
+            let board = py.import("chess")
+                .and_then(|chess| chess.getattr("Board"))
+                .and_then(|board| board.call0())
+                .unwrap();
+            return Self { python_object: PyObject::from(board) };
+        })
     }
+
+    pub fn next_steps(&self) -> Vec<Board> {
+        Python::with_gil(|py| {
+            let code = r#"
+            moves = board.legal_moves()
+            [board.copy(stack=False).push(m) for m in moves]
+            "#;
+            let locals = [("board", self.python_object.as_ref(py))].into_py_dict(py);
+            let boards = py.eval(code, None, Some(locals))?
+                .iter()?
+                .map(|o| o.and_then(PyAny::extract).unwrap())
+                .collect();
+            Ok::<Vec<Board>, PyErr>(boards)
+
+            //let moves: Py<PyAny> = self.python_object.getattr(py, intern!(py, "legal_moves"))?;
+            //let moves = moves.as_ref(py)
+            //    .iter()?
+            //    .map(|o| o.and_then(PyAny::extract).unwrap());
+            //let boards = moves.map(|m: Move| {
+            //    self.python_object.as_ref(py)
+            //        .call_method1(intern!(py, "copy"), (false,))
+            //        .and_then(|o| o.call_method1(intern!(py, "push"), (m, )))
+            //        .and_then(PyAny::extract)
+            //        .unwrap()
+            //}).collect();
+            //Ok::<Vec<Board>, PyErr>(boards)
+        }).unwrap()
+    }
+}
+
+impl game::State for BoardState {
+    type Step = Board;
+
+    fn dup(&self) -> Self {
+        Python::with_gil(|py| {
+            return Self { python_object: self.python_object.call_method0(py, intern!(py, "copy")).unwrap()}
+        })
+    }
+
+    fn advance(&mut self, board: &Board) {
+        Python::with_gil(|py| {
+            let mov: Move = board.last_move.unwrap();
+            self.python_object.call_method1(py, intern!(py, "push"), (mov, ))
+        });
+    }
+
 }
 
 impl BoardHistory {
@@ -306,24 +409,23 @@ impl BoardHistory {
         return BoardHistory {size: size, history: VecDeque::with_capacity(size)};
     }
 
-    pub fn push(&mut self, board: Board) {
+    pub fn push(&mut self, board: &Board) {
         self.history.pop_back();
-        self.history.push_front(board.get_state());
+        self.history.push_front(board);
     }
 
     pub fn view(&self, rotate: bool) -> Array3<u32> {
         let mut full = Array3::<u32>::zeros((8, 8, 14 * self.size));
 
         for idx in 0..self.history.len() {
-            let state = self.history.get(idx).unwrap();
+            let board = self.history.get(idx).unwrap();
             let array = if rotate {
-                Board::_encode_board_state(&state.rotate())
+                board.rotate().encode_pieces()
             } else {
-                Board::_encode_board_state(state)
+                board.encode_pieces()
             };
             full.slice_mut(s![.., .., 14 * idx .. 14 * (idx + 1)]).assign(&array);
         }
-
-        return full
+        full
     }
 }
