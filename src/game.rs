@@ -21,7 +21,6 @@ pub trait State {
 
 struct GameWithNN {
     model: Py<PyAny>,
-    history: BoardHistory,
 }
 
 
@@ -32,7 +31,7 @@ impl Game<BoardState> for GameWithNN {
         let mut cur = NonNull::from(node);
         for step in 0..LOOKBACK {
             let ref n = cur.as_ref();
-            history.push(n.step);
+            history.push(&n.step);
             match n.parent {
                 None => break,
                 Some(parent) => cur = parent,
@@ -57,7 +56,7 @@ impl Game<BoardState> for GameWithNN {
             let score: f32 = tuple.get_item(1).and_then(|o| o.extract()).unwrap();
 
             let encoded_moves: Vec<i32> = next_steps
-                .into_iter()
+                .iter()
                 .map(|b| {
                     let m = b.last_move.unwrap();
                      if rotate {m.rotate().encode()} else {m.encode()}
@@ -73,7 +72,7 @@ impl Game<BoardState> for GameWithNN {
         });
 
         let moves_distr: Vec<f32> = if argmax {
-            let i: usize = moves_distr.into_iter()
+            let i: usize = moves_distr.iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                 .unwrap()
@@ -83,8 +82,8 @@ impl Game<BoardState> for GameWithNN {
             moves_distr
         }
         else {
-            let sum = moves_distr.into_iter().sum::<f32>() + 1e-5;
-            moves_distr.into_iter().map(|x| x / sum).collect()
+            let sum = moves_distr.iter().sum::<f32>() + 1e-5;
+            moves_distr.iter().map(|x| x / sum).collect()
         };
 
         return (next_steps, moves_distr, score);

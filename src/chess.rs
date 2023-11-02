@@ -69,9 +69,9 @@ pub struct BoardState {
     python_object: Py<PyAny>,
 }
 
-pub struct BoardHistory {
+pub struct BoardHistory<'a> {
     pub size: usize,
-    pub history: VecDeque<&Board>,
+    pub history: VecDeque<&'a Board>,
 }
 
 impl From<i32> for PieceType {
@@ -404,12 +404,12 @@ impl game::State for BoardState {
 
 }
 
-impl BoardHistory {
+impl<'a> BoardHistory<'a> {
     pub fn new(size: usize) -> Self {
         return BoardHistory {size: size, history: VecDeque::with_capacity(size)};
     }
 
-    pub fn push(&mut self, board: &Board) {
+    pub fn push(&mut self, board: &'a Board) {
         self.history.pop_back();
         self.history.push_front(board);
     }
