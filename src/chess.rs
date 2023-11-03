@@ -396,7 +396,7 @@ impl game::State for BoardState {
     }
 
     fn advance(&mut self, board: &Board) {
-        Python::with_gil(|py| {
+        let _ = Python::with_gil(|py| {
             let mov: Move = board.last_move.unwrap();
             self.python_object.call_method1(py, intern!(py, "push"), (mov, ))
         });

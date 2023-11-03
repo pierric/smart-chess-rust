@@ -4,7 +4,7 @@ use pyo3::intern;
 use pyo3::types::PyTuple;
 use numpy::array::{PyArray1, PyArray3};
 use crate::mcts::Node;
-use crate::chess::{Board, BoardState, BoardHistory, Move, Color};
+use crate::chess::{Board, BoardState, BoardHistory, Color};
 
 const LOOKBACK: usize = 8;
 
@@ -29,8 +29,8 @@ impl Game<BoardState> for GameWithNN {
         let mut history = BoardHistory::new(LOOKBACK);
 
         let mut cur = NonNull::from(node);
-        for step in 0..LOOKBACK {
-            let ref n = cur.as_ref();
+        for _ in 0..LOOKBACK {
+            let ref n = unsafe {cur.as_ref()};
             history.push(&n.step);
             match n.parent {
                 None => break,

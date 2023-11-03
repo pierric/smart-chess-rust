@@ -77,8 +77,8 @@ fn select<'a, G, S>(game: &G, node: &'a mut Node<S::Step>, state: &S, reverse_q:
 
 fn mcts<G, S>(game: &G, node: &mut Node<S::Step>, state: &S, n_rollout: i32, reverse_q: bool, cpuct: Option<f32>)
     where G: Game<S>, S: State {
-    let DEFAULT_CPUCT: f32 = 1.2;
-    let cpuct = cpuct.unwrap_or(DEFAULT_CPUCT);
+    let default_cpuct: f32 = 1.2;
+    let cpuct = cpuct.unwrap_or(default_cpuct);
 
     for _ in 0..n_rollout {
         let local_state = state.dup();
