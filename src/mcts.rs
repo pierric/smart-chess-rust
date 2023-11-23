@@ -46,7 +46,7 @@ fn select<'a, G, S>(game: &G, node: &'a mut Node<S::Step>, state: &S, reverse_q:
     //Descend in the tree until some leaf, exploiting the knowledge to choose
     //the best child each time.
     let mut ptr: RecRef<Node<S::Step>> = RecRef::new(node);
-    let state = state.dup();
+    let mut state = state.dup();
 
     loop {
         let (steps, prior, outcome) = game.predict(&*ptr, &state, false);
@@ -67,15 +67,17 @@ fn select<'a, G, S>(game: &G, node: &'a mut Node<S::Step>, state: &S, reverse_q:
             |(prior, child)|
                 uct(sqrt_total_num_vis, prior, child.q_value, child.num_act, reverse_q, cpuct)
         ).collect();
+        let best = find_max(uct_children.into_iter()).unwrap();
+        state.advance(&ptr.children[best].step);
         RecRef::extend(
             &mut ptr,
-            |node: &mut Node<S::Step>| node.children[find_max(uct_children.into_iter()).unwrap()].as_mut()
+            |node: &mut Node<S::Step>| node.children[best].as_mut()
         );
         ptr.num_act += 1;
     }
 }
 
-fn mcts<G, S>(game: &G, node: &mut Node<S::Step>, state: &S, n_rollout: i32, reverse_q: bool, cpuct: Option<f32>)
+pub fn mcts<G, S>(game: &G, node: &mut Node<S::Step>, state: &S, n_rollout: i32, reverse_q: bool, cpuct: Option<f32>)
     where G: Game<S>, S: State {
     let default_cpuct: f32 = 1.2;
     let cpuct = cpuct.unwrap_or(default_cpuct);

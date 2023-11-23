@@ -16,7 +16,7 @@ pub enum EncodeError {
     NotPromotion,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
@@ -24,13 +24,13 @@ pub struct Move {
     pub drop: Option<PieceType>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Square {
     pub rank: i32,
     pub file: i32,
 }
 
-#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum PieceType {
     Pawn = 1,
     Knight,
@@ -41,18 +41,19 @@ pub enum PieceType {
 }
 
 
-#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum Color {
     Black = 0,
     White,
 }
 
-#[derive(Copy, Clone, FromPyObject)]
+#[derive(Copy, Clone, Debug, FromPyObject)]
 pub struct Piece {
     pub piece_type: PieceType,
     pub color: Color,
 }
 
+#[derive(Debug)]
 pub struct Board {
     pub last_move: Option<Move>,
     pub turn: Color,
@@ -178,7 +179,7 @@ impl IntoPy<Py<PyAny>> for Square {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
         py.import("chess")
             .and_then(|chess| chess.getattr("square"))
-            .and_then(|square| square.call1((self.rank, self.file)))
+            .and_then(|square| square.call1((self.file, self.rank)))
             .unwrap()
             .into_py(py)
     }
@@ -217,7 +218,7 @@ impl<'a> FromPyObject<'a> for Board {
             .call_method1(intern!(py, "has_queenside_castling_rights"), (!turn,))?
             .extract()?;
 
-        let last_move = if fullmove_number == 1 || turn == Color::White {
+        let last_move = if fullmove_number == 1 && turn == Color::White {
             None
         } else {
             let mov = obj.call_method0(intern!(py, "peek")).unwrap().extract()?;
@@ -246,16 +247,41 @@ impl fmt::Display for PieceType {
 
 impl fmt::Display for Square {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.rank, self.file)
+        write!(f, "{}:{}", self.file, self.rank)
     }
 }
 
 impl fmt::Display for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.promotion {
-            Some(p) => write!(f, "Move ({}, {}, {})", self.from, self.to, p),
-            None => write!(f, "Move ({}, {})", self.from, self.to),
+            Some(p) => write!(f, "Move[{} => {} {}]", self.from, self.to, p),
+            None => write!(f, "Move[{} => {}]", self.from, self.to),
         }
+    }
+}
+
+impl fmt::Display for Color {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Color::Black => write!(f, "B"),
+            Color::White => write!(f, "W"),
+        }
+    }
+}
+
+impl fmt::Display for Board {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Board: turn {}", self.turn)?;
+        match self.last_move {
+            None => { Ok(()) }
+            Some(m) => { write!(f, " last move {}", m) }
+        }
+    }
+}
+
+impl fmt::Display for BoardState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.python_object)
     }
 }
 
@@ -357,31 +383,35 @@ impl BoardState {
         })
     }
 
+    pub fn to_board(&self) -> Board {
+        Python::with_gil(|py| {
+            self.python_object.extract(py).unwrap()
+        })
+    }
+
     pub fn next_steps(&self) -> Vec<Board> {
         Python::with_gil(|py| {
+            let moves = self.python_object.getattr(py, intern!(py, "legal_moves"))?;
+            let locals = [
+                ("board", &self.python_object),
+                ("moves", &moves),
+            ].into_py_dict(py);
+
             let code = r#"
-            moves = board.legal_moves()
-            [board.copy(stack=False).push(m) for m in moves]
-            "#;
-            let locals = [("board", self.python_object.as_ref(py))].into_py_dict(py);
-            let boards = py.eval(code, None, Some(locals))?
-                .iter()?
-                .map(|o| o.and_then(PyAny::extract).unwrap())
+def _act(m):
+    b = board.copy(stack=False)
+    b.push(m)
+    return b
+
+ret = list(map(_act, moves))
+"#;
+            py.run(code, Some(locals), None)?;
+            let boards = locals.get_item("ret")?.unwrap()
+                .downcast::<PyList>().unwrap()
+                .iter()
+                .map(|o| o.extract().unwrap())
                 .collect();
             Ok::<Vec<Board>, PyErr>(boards)
-
-            //let moves: Py<PyAny> = self.python_object.getattr(py, intern!(py, "legal_moves"))?;
-            //let moves = moves.as_ref(py)
-            //    .iter()?
-            //    .map(|o| o.and_then(PyAny::extract).unwrap());
-            //let boards = moves.map(|m: Move| {
-            //    self.python_object.as_ref(py)
-            //        .call_method1(intern!(py, "copy"), (false,))
-            //        .and_then(|o| o.call_method1(intern!(py, "push"), (m, )))
-            //        .and_then(PyAny::extract)
-            //        .unwrap()
-            //}).collect();
-            //Ok::<Vec<Board>, PyErr>(boards)
         }).unwrap()
     }
 }
