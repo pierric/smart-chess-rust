@@ -13,6 +13,10 @@ pub struct Node<T> {
     pub children: Vec<Box<Node<T>>>,
 }
 
+pub struct Cursor<T> {
+    pub current: NonNull<Node<T>>,
+}
+
 fn uct(sqrt_total_num_vis: f32, prior: f32, move_q: f32, move_n_act:i32, reverse_q: bool, cpuct: f32) -> f32 {
     const EPSILON: f32 = 1e-4;
 
@@ -98,4 +102,21 @@ pub fn mcts<G, S>(game: &G, node: &mut Node<S::Step>, state: &S, n_rollout: i32,
 
         backward(path, reward);
     };
+}
+
+impl<T> Cursor<T> {
+    fn move_children(&mut self, index: usize) {
+        let child = unsafe {self.current.as_ref().children[index].as_ref()};
+        self.current = NonNull::from(child);
+    }
+
+    fn move_parent(&mut self) {
+        let node = unsafe {self.current.as_ref()};
+        match node.parent {
+            None => panic!("Already at the root of the tree."),
+            Some(ptr) => {
+                self.current = ptr;
+            }
+        }
+    }
 }
