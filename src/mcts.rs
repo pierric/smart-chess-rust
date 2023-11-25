@@ -13,7 +13,7 @@ pub struct Node<T> {
     pub children: Vec<Box<Node<T>>>,
 }
 
-pub struct Cursor<T> {
+pub struct CursorMut<T> {
     pub current: NonNull<Node<T>>,
 }
 
@@ -104,13 +104,23 @@ pub fn mcts<G, S>(game: &G, node: &mut Node<S::Step>, state: &S, n_rollout: i32,
     };
 }
 
-impl<T> Cursor<T> {
-    fn move_children(&mut self, index: usize) {
+impl<T> Node<T> {
+    pub fn as_cursor_mut(&mut self) -> CursorMut<T> {
+        CursorMut{current: NonNull::from(self)}
+    }
+}
+
+impl<T> CursorMut<T> {
+    pub fn current(&mut self) -> &mut Node<T> {
+        unsafe {self.current.as_mut()}
+    }
+
+    pub fn move_children(&mut self, index: usize) {
         let child = unsafe {self.current.as_ref().children[index].as_ref()};
         self.current = NonNull::from(child);
     }
 
-    fn move_parent(&mut self) {
+    pub fn move_parent(&mut self) {
         let node = unsafe {self.current.as_ref()};
         match node.parent {
             None => panic!("Already at the root of the tree."),

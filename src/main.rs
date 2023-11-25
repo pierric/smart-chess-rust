@@ -20,12 +20,21 @@ fn print_node(node: &mcts::Node<chess::Board>) {
     }
 }
 
-fn select(node: &mut mcts::Node<chess::Board>) -> &mut mcts::Node<chess::Board> {
-    node.children.iter_mut().max_by(|a, b| {
-        let v1 = a.q_value / a.num_act as f32;
-        let v2 = b.q_value / b.num_act as f32;
+fn step(cursor: &mut mcts::CursorMut<chess::Board>, state: &mut chess::BoardState) -> bool {
+    let node = cursor.current();
+    let opt_choice = node.children.iter().enumerate().max_by(|a, b| {
+        let v1 = a.1.q_value / a.1.num_act as f32;
+        let v2 = b.1.q_value / b.1.num_act as f32;
         v1.partial_cmp(&v2).unwrap()
-    }).unwrap().as_mut()
+    });
+    match opt_choice {
+        None => return false;
+        Some((idx, _)) => {
+            cursor.move_children(idx);
+            game::State::advance(state, &cursor.current().step);
+            return true;
+        }
+    }
 }
 
 fn main() {
@@ -39,37 +48,30 @@ fn main() {
         Ok(nn) => {
             let chess = game::Chess{model: nn};
             let mut state = chess::BoardState::new();
-            let board = state.to_board();
-            let mut root = mcts::Node{step: board, q_value: 0., num_act: 0, parent: None, children: Vec::new()};
+            let mut root = mcts::Node {
+                step: state.to_board(),
+                q_value: 0.,
+                num_act: 0,
+                parent: None,
+                children: Vec::new()
+            };
+            let mut cursor = root.as_cursor_mut();
 
-            mcts::mcts(&chess, &mut root, &state, 100, false, None);
-            println!("Root: {} {} {}", root.q_value, root.num_act, root.step.turn);
-            //print_node(&root);
-
-            let mut n1 = select(&mut root);
-            println!("next: {} {}", n1.step.last_move.unwrap(), n1.step.turn);
-            game::State::advance(&mut state, &n1.step);
-            println!("{}", state);
-
-            mcts::mcts(&chess, &mut n1, &state, 100, true, None);
-            println!("Current: {} {} {}", n1.q_value, n1.num_act, n1.step.turn);
+            for i in 0..5 {
+                mcts::mcts(&chess, cursor.current(), &state, 100, false, None);
+                if !step(&mut cursor, &mut state) {
+                    break;
+                }
+                println!("Step {}\n{}", i, state);
+            }
+            //mcts::mcts(&chess, &mut n1, &state, 100, true, None);
+            //println!("Current: {} {} {}", n1.q_value, n1.num_act, n1.step.turn);
             //print_node(n1);
 
-            let mut n2 = select(&mut n1);
-            println!("next: {} {}", n2.step.last_move.unwrap(), n2.step.turn);
-            game::State::advance(&mut state, &n2.step);
-            println!("{}", state);
-
-            mcts::mcts(&chess, &mut n2, &state, 100, false, None);
-            println!("Current: {} {} {}", n2.q_value, n2.num_act, n2.step.turn);
-            //print_node(n2);
-
-            let mut n3 = select(&mut n2);
-            println!("next: {} {}", n3.step.last_move.unwrap(), n3.step.turn);
-            game::State::advance(&mut state, &n3.step);
-            println!("{}", state);
-
-
+            //let mut n2 = select(&mut n1);
+            //println!("next: {} {}", n2.step.last_move.unwrap(), n2.step.turn);
+            //game::State::advance(&mut state, &n2.step);
+            //println!("{}", state);
         }
         Err(e) => {
             let path = get_python_path();
