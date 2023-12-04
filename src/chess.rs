@@ -6,6 +6,7 @@ use pyo3::types::*;
 use pyo3::conversion::IntoPy;
 use pyo3::intern;
 use ndarray::{Array3, Ix3, s};
+use serde::{Serialize, Serializer};
 use crate::{knightmoves, queenmoves, underpromotions, game};
 
 #[derive(Debug)]
@@ -163,6 +164,13 @@ impl IntoPy<Py<PyAny>> for Move {
             .and_then(|mov| mov.call1((from, to, promotion, drop)))
             .unwrap()
             .into_py(py)
+    }
+}
+
+impl Serialize for Move {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer {
+        serializer.serialize_str(self.uci())
     }
 }
 
