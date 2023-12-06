@@ -44,12 +44,12 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError>  {
             ("from_file", mov.from.file.to_object(py)),
         ].into_py_dict(py);
 
-        py.eval(
-            r#"underpromotion_type = np.ravel_multi_index((direction_idx, promotion_idx), (3, 3))
-               move_type = _TYPE_OFFSET + underpromotion_type;
-               np.ravel_multi_index((from_rank, from_file, move_type), (8, 8, 73)"#,
-            None,
-            Some(locals)
-        ).and_then(|r| r.extract::<i32>()).map_err(EncodeError::PythonError)
+        let code = r#"
+underpromotion_type = np.ravel_multi_index((direction_idx, promotion_idx), (3, 3))
+move_type = _TYPE_OFFSET + underpromotion_type;
+ret = np.ravel_multi_index((from_rank, from_file, move_type), (8, 8, 73))"#;
+
+        py.run(code, None, Some(locals)).unwrap();
+        locals.get_item("ret").unwrap().unwrap().extract().map_err(EncodeError::PythonError)
     })
 }

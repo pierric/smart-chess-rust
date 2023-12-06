@@ -249,7 +249,7 @@ impl<'a> FromPyObject<'a> for Board {
 
 impl fmt::Display for PieceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{:?}", self)
     }
 }
 
@@ -261,10 +261,7 @@ impl fmt::Display for Square {
 
 impl fmt::Display for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.promotion {
-            Some(p) => write!(f, "Move[{} => {} {}]", self.from, self.to, p),
-            None => write!(f, "Move[{} => {}]", self.from, self.to),
-        }
+        write!(f, "Move[{}]", self.uci())
     }
 }
 
