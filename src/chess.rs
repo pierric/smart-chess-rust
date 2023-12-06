@@ -170,7 +170,7 @@ impl IntoPy<Py<PyAny>> for Move {
 impl Serialize for Move {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: Serializer {
-        serializer.serialize_str(self.uci())
+        serializer.serialize_str(&self.uci())
     }
 }
 
@@ -293,13 +293,49 @@ impl fmt::Display for BoardState {
     }
 }
 
+impl PieceType {
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            PieceType::Pawn => "p",
+            PieceType::Knight => "n",
+            PieceType::BISHOP => "b",
+            PieceType::ROOK => "r",
+            PieceType::Queen => "q",
+            PieceType::King => "k",
+        }
+    }
+}
+
+const SQUARE_NAMES: [[&str;8];8] = [
+    ["a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1"],
+    ["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"],
+    ["a3", "b3", "c3", "d3", "e3", "f3", "g3", "h3"],
+    ["a4", "b4", "c4", "d4", "e4", "f4", "g4", "h4"],
+    ["a5", "b5", "c5", "d5", "e5", "f5", "g5", "h5"],
+    ["a6", "b6", "c6", "d6", "e6", "f6", "g6", "h6"],
+    ["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"],
+    ["a8", "b8", "c8", "d8", "e8", "f8", "g8", "h8"],
+];
+
 impl Square {
+    pub fn symbol(&self) -> &str {
+        SQUARE_NAMES[self.rank as usize][self.file as usize]
+    }
+
     pub fn rotate(&self) -> Self {
         return Self {rank: 7 - self.rank, file: 7 - self.file}
     }
 }
 
 impl Move {
+    pub fn uci(&self) -> String {
+        match (self.drop, self.promotion) {
+            (Some(p), _) => format!("{}@{}", p.symbol(), self.to.symbol()),
+            (None, Some(p)) => format!("{}{}{}", self.from.symbol(), self.to.symbol(), p.symbol()),
+            (None, None) => format!("{}{}", self.from.symbol(), self.to.symbol()),
+        }
+    }
+
     pub fn rotate(&self) -> Self {
         let from = self.from.rotate();
         let to = self.to.rotate();

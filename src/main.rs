@@ -44,7 +44,7 @@ fn save_trace(trace: Vec<(Option<chess::Move>, f32, Vec<i32>)>) {
     let json = serde_json::to_string(&trace).unwrap();
 
     let mut file = File::create("trace.json").unwrap();
-    file.write_all(json.as_bytes());
+    file.write_all(json.as_bytes()).unwrap();
 }
 
 fn main() {
@@ -69,7 +69,7 @@ fn main() {
             let mut cursor = root.as_cursor_mut();
 
             for i in 0..10 {
-                mcts::mcts(&chess, cursor.current(), &state, 20, false, None);
+                mcts::mcts(&chess, cursor.current(), &state, 100, false, None);
 
                 let node = cursor.current();
                 trace.push((node.step.last_move, node.q_value, node.children.iter().map(|c| c.num_act).collect()));
