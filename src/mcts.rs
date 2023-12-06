@@ -59,19 +59,22 @@ fn select<'a, G, S>(game: &G, node: &'a mut Node<S::Step>, state: &S, reverse_q:
             return (ptr, steps, outcome)
         }
 
-        // otherwise, explore by the predicted distrubtion + the Dir(0.03) noise
-        // https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
-        let dir = Dirichlet::new_with_size(0.03, prior.len()).unwrap();
-        let prior_rand = prior.into_iter()
-            .zip(dir.sample(&mut thread_rng()))
-            .map(|(p, n)| p * 0.75 + n * 0.25);
-        let sqrt_total_num_vis = f32::sqrt(i32::sum(ptr.children.iter().map(
-            |c| c.num_act)) as f32);
-        let uct_children: Vec<f32> = prior_rand.zip(ptr.children.iter()).map(
-            |(prior, child)|
-                uct(sqrt_total_num_vis, prior, child.q_value, child.num_act, reverse_q, cpuct)
-        ).collect();
-        let best = find_max(uct_children.into_iter()).unwrap();
+        let best = if ptr.children.len() == 1 { 0 } else {
+            // otherwise, explore by the predicted distrubtion + the Dir(0.03) noise
+            // https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
+            let dir = Dirichlet::new_with_size(0.03, prior.len()).unwrap();
+            let prior_rand = prior.into_iter()
+                .zip(dir.sample(&mut thread_rng()))
+                .map(|(p, n)| p * 0.75 + n * 0.25);
+            let sqrt_total_num_vis = f32::sqrt(i32::sum(ptr.children.iter().map(
+                |c| c.num_act)) as f32);
+            let uct_children: Vec<f32> = prior_rand.zip(ptr.children.iter()).map(
+                |(prior, child)|
+                    uct(sqrt_total_num_vis, prior, child.q_value, child.num_act, reverse_q, cpuct)
+            ).collect();
+            find_max(uct_children.into_iter()).unwrap()
+        };
+
         state.advance(&ptr.children[best].step);
         RecRef::extend(
             &mut ptr,
