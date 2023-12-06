@@ -62,6 +62,7 @@ struct Args {
 }
 
 fn main() {
+    unsafe { backtrace_on_stack_overflow::enable() };
     let args = Args::parse();
 
     let r = Python::with_gil(|py| {
