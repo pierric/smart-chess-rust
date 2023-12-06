@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 use pyo3::prelude::*;
+use clap::Parser;
 
 mod chess;
 mod knightmoves;
@@ -23,41 +24,56 @@ fn print_node(node: &mcts::Node<chess::Board>) {
     }
 }
 
-fn step(cursor: &mut mcts::CursorMut<chess::Board>, state: &mut chess::BoardState) -> bool {
-    let node = cursor.current();
-    let opt_choice = node.children.iter().enumerate().max_by(|a, b| {
+fn step(cursor: &mut mcts::CursorMut<chess::Board>, state: &mut chess::BoardState) -> Option<chess::Move> {
+    let opt_choice = cursor.current().children.iter().enumerate().max_by(|a, b| {
         let v1 = a.1.q_value / (a.1.num_act as f32 + EPSILON);
         let v2 = b.1.q_value / (b.1.num_act as f32 + EPSILON);
         v1.partial_cmp(&v2).unwrap()
     });
     match opt_choice {
-        None => false,
+        None => None,
         Some((idx, _)) => {
             cursor.move_children(idx);
-            game::State::advance(state, &cursor.current().step);
-            return true;
+            let step = &cursor.current().step;
+            game::State::advance(state, step);
+            step.last_move
         }
     }
 }
 
-fn save_trace(trace: Vec<(Option<chess::Move>, f32, Vec<i32>)>) {
+fn save_trace(trace: Vec<(Option<chess::Move>, f32, Vec<(i32, f32)>)>) {
     let json = serde_json::to_string(&trace).unwrap();
 
     let mut file = File::create("trace.json").unwrap();
     file.write_all(json.as_bytes()).unwrap();
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    device: String,
+
+    #[arg(short, long, default_value_t = 100)]
+    rollout: i32,
+
+    #[arg(short, long, default_value_t = 10)]
+    num_steps: i32,
+}
+
 fn main() {
+    let args = Args::parse();
+
     let r = Python::with_gil(|py| {
-        let nn = py.import("nn")?.getattr("load_model")?.call0()?;
+        let nn: &PyAny = py.import("nn")?.getattr("load_model")?.call0()?.call_method1("to", (&args.device,))?;
         Ok::<Py<PyAny>, PyErr>(nn.into())
     });
 
 
     match r {
         Ok(nn) => {
-            let mut trace: Vec<(Option<chess::Move>, f32, Vec<i32>)> = Vec::new();
-            let chess = game::Chess{model: nn};
+            let mut trace: Vec<(Option<chess::Move>, f32, Vec<(i32, f32)>)> = Vec::new();
+            let chess = game::Chess{model: nn, device: &args.device};
             let mut state = chess::BoardState::new();
             let mut root = mcts::Node {
                 step: state.to_board(),
@@ -68,16 +84,22 @@ fn main() {
             };
             let mut cursor = root.as_cursor_mut();
 
-            for i in 0..10 {
-                mcts::mcts(&chess, cursor.current(), &state, 100, false, None);
+            for i in 0..args.num_steps {
+                mcts::mcts(&chess, cursor.current(), &state, args.rollout, false, None);
 
                 let node = cursor.current();
-                trace.push((node.step.last_move, node.q_value, node.children.iter().map(|c| c.num_act).collect()));
+                let q_value = node.q_value;
+                let num_act_children: Vec<(i32, f32)> = node.children.iter().map(|c| (c.num_act, c.q_value)).collect();
 
-                if !step(&mut cursor, &mut state) {
-                    break;
+                match step(&mut cursor, &mut state) {
+                    None => {
+                        break;
+                    }
+                    mov => {
+                        trace.push((mov, q_value, num_act_children));
+                        println!("Step {}\n{}", i, state);
+                    }
                 }
-                println!("Step {}\n{}", i, state);
             }
 
             save_trace(trace);

@@ -3,7 +3,7 @@ use crate::mcts::Node;
 use ndarray::Array3;
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
-use pyo3::types::IntoPyDict;
+use pyo3::types::{IntoPyDict, PyString};
 use std::ptr::NonNull;
 
 const LOOKBACK: usize = 8;
@@ -26,12 +26,14 @@ pub trait State {
     fn advance(&mut self, step: &Self::Step);
 }
 
-pub struct Chess {
+pub struct Chess<'a> {
     pub model: Py<PyAny>,
+    pub device: &'a str,
 }
 
 fn call_py_model(
     model: &Py<PyAny>,
+    device: &str,
     boards: Array3<u32>,
     meta: Array3<u32>,
     rotate: bool,
@@ -44,7 +46,8 @@ fn call_py_model(
         let code = r#"
 inp = np.concatenate((encoded_boards, encoded_meta), axis=-1).astype(np.float32)
 inp = inp.transpose((2, 0, 1))
-ret_distr, ret_score = model(torch.from_numpy(inp[np.newaxis, :]))
+inp = torch.from_numpy(inp[np.newaxis, :])
+ret_distr, ret_score = model(inp.to(device))
 ret_distr = ret_distr.detach().cpu().numpy().squeeze()
 ret_score = ret_score.detach().cpu().item()
 "#;
@@ -54,6 +57,7 @@ ret_score = ret_score.detach().cpu().item()
             ("encoded_boards", encoded_boards.as_ref()),
             ("encoded_meta", encoded_meta.as_ref()),
             ("model", model.as_ref(py)),
+            ("device", PyString::new(py, device)),
         ].into_py_dict(py);
         py.run(code, Some(locals), None).unwrap();
 
@@ -81,7 +85,7 @@ ret_score = ret_score.detach().cpu().item()
     })
 }
 
-impl Game<BoardState> for Chess {
+impl Game<BoardState> for Chess<'_> {
     fn predict(
         &self,
         node: &Node<Board>,
@@ -107,6 +111,7 @@ impl Game<BoardState> for Chess {
 
         let (moves_distr, score) = call_py_model(
             &self.model,
+            self.device,
             encoded_boards,
             encoded_meta,
             rotate,
