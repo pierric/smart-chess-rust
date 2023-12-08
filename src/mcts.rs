@@ -122,14 +122,4 @@ impl<T> CursorMut<T> {
         let child = unsafe {self.current.as_ref().children[index].as_ref()};
         self.current = NonNull::from(child);
     }
-
-    pub fn move_parent(&mut self) {
-        let node = unsafe {self.current.as_ref()};
-        match node.parent {
-            None => panic!("Already at the root of the tree."),
-            Some(ptr) => {
-                self.current = ptr;
-            }
-        }
-    }
 }

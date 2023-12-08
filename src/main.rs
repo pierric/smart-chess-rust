@@ -18,12 +18,6 @@ fn get_python_path() -> Py<PyAny> {
     });
 }
 
-fn print_node(node: &mcts::Node<chess::Board>) {
-    for (idx, ch) in node.children.iter().enumerate() {
-        println!("Child {}: {} {} {}", idx, ch.q_value, ch.num_act, ch.step.last_move.unwrap());
-    }
-}
-
 fn step(cursor: &mut mcts::CursorMut<chess::Board>, state: &mut chess::BoardState) -> Option<chess::Move> {
     let opt_choice = cursor.current().children.iter().enumerate().max_by(|a, b| {
         let v1 = a.1.q_value / (a.1.num_act as f32 + EPSILON);
