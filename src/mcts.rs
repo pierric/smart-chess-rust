@@ -62,10 +62,10 @@ fn select<'a, G, S>(game: &G, node: &'a mut Node<S::Step>, state: &S, reverse_q:
         let best = if ptr.children.len() == 1 { 0 } else {
             // otherwise, explore by the predicted distrubtion + the Dir(0.03) noise
             // https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
-            let dir = Dirichlet::new_with_size(0.03, prior.len()).unwrap();
-            let prior_rand = prior.into_iter()
+            let dir = Dirichlet::<f64>::new_with_size(0.03, prior.len()).unwrap();
+            let prior_rand = prior.iter()
                 .zip(dir.sample(&mut thread_rng()))
-                .map(|(p, n)| p * 0.75 + n * 0.25);
+                .map(|(p, n)| p * 0.75 + n as f32 * 0.25);
             let sqrt_total_num_vis = f32::sqrt(i32::sum(ptr.children.iter().map(
                 |c| c.num_act)) as f32);
             let uct_children: Vec<f32> = prior_rand.zip(ptr.children.iter()).map(
