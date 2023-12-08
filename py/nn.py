@@ -69,4 +69,6 @@ class ChessModule(torch.nn.Module):
 
 
 def load_model():
-    return ChessModule()
+    model = ChessModule()
+    model.eval()
+    return torch.compile(model, mode="reduce-overhead")

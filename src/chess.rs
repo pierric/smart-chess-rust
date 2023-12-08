@@ -42,7 +42,7 @@ pub enum PieceType {
 }
 
 
-#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug)]
+#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize)]
 pub enum Color {
     Black = 0,
     White,
@@ -65,6 +65,26 @@ pub struct Board {
     pub fullmove_number: u32,
     pub has_kingside_castling_rights: (bool, bool),
     pub has_queenside_castling_rights: (bool, bool),
+}
+
+#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize)]
+pub enum Termination {
+    Checkmate = 0,
+    Stalemate,
+    InsufficientMaterial,
+    SeventyfiveMoves,
+    FivefoldRepetition,
+    FiftyMoves,
+    ThreefoldRepetition,
+    VariantWin,
+    VariantLoss,
+    VariantDraw,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Outcome {
+    pub termination: Termination,
+    pub winner: Option<Color>,
 }
 
 pub struct BoardState {
@@ -190,6 +210,39 @@ impl IntoPy<Py<PyAny>> for Square {
             .and_then(|square| square.call1((self.file, self.rank)))
             .unwrap()
             .into_py(py)
+    }
+}
+
+impl From<i32> for Termination {
+    fn from(i: i32) -> Self {
+        match i {
+            0 => Termination::Checkmate,
+            1 => Termination::Stalemate,
+            2 => Termination::InsufficientMaterial,
+            3 => Termination::SeventyfiveMoves,
+            4 => Termination::FivefoldRepetition,
+            5 => Termination::FiftyMoves,
+            6 => Termination::ThreefoldRepetition,
+            7 => Termination::VariantWin,
+            8 => Termination::VariantLoss,
+            9 => Termination::VariantDraw,
+            _ => panic!("Invalid Termination"),
+        }
+    }
+}
+
+impl<'a> FromPyObject<'a> for Termination {
+    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+        return obj.getattr(intern!(obj.py(), "value"))?.extract::<i32>().map(|v| v.into());
+    }
+}
+
+impl<'a> FromPyObject<'a> for Outcome {
+    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+        let py = obj.py();
+        let term = obj.getattr(intern!(py, "termination"))?.extract()?;
+        let winner = obj.getattr(intern!(py, "winner"))?.extract()?;
+        return Ok(Outcome {termination: term, winner: winner});
     }
 }
 
@@ -428,6 +481,15 @@ impl BoardState {
         Python::with_gil(|py| {
             self.python_object.extract(py).unwrap()
         })
+    }
+
+    pub fn outcome(&self) -> Option<Outcome> {
+        Python::with_gil(|py| {
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("claim_draw", true)?;            
+            let res = self.python_object.call_method(py, intern!(py, "outcome"), (), Some(kwargs))?;
+            res.extract(py)
+        }).unwrap()
     }
 
     pub fn next_steps(&self) -> Vec<Board> {

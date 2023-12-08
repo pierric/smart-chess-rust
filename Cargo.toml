@@ -10,7 +10,7 @@ ndarray = "0.15.6"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 recursive_reference = "0.3.0"
-serde = "1.0"
+serde = { version = "1.0", features = ["std", "derive"] }
 serde_json = "1.0"
 clap = { version = "4.4.11", features = ["derive"] }
 backtrace-on-stack-overflow = "0.3.0"

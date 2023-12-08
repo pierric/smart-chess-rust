@@ -14,5 +14,5 @@ Cargo.lock
 *.pdb
 
 scripts/.ipynb_checkpoints
-py/__pycache__
+**/__pycache__
 .python-version

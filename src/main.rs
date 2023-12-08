@@ -41,11 +41,14 @@ fn step(cursor: &mut mcts::CursorMut<chess::Board>, state: &mut chess::BoardStat
     }
 }
 
-fn save_trace(trace: Vec<(Option<chess::Move>, f32, Vec<(i32, f32)>)>) {
-    let json = serde_json::to_string(&trace).unwrap();
+fn save_trace(trace: Vec<(Option<chess::Move>, f32, Vec<(i32, f32)>)>, outcome: Option<chess::Outcome>) {
+    let json = serde_json::json!({
+        "steps": trace,
+        "outcome": outcome,
+    });
 
     let mut file = File::create("trace.json").unwrap();
-    file.write_all(json.as_bytes()).unwrap();
+    file.write_all(json.to_string().as_bytes()).unwrap();
 }
 
 #[derive(Parser, Debug)]
@@ -84,6 +87,7 @@ fn main() {
                 children: Vec::new()
             };
             let mut cursor = root.as_cursor_mut();
+            let mut outcome = None;
 
             for i in 0..args.num_steps {
                 mcts::mcts(&chess, cursor.current(), &state, args.rollout, false, None);
@@ -94,6 +98,7 @@ fn main() {
 
                 match step(&mut cursor, &mut state) {
                     None => {
+                        outcome = state.outcome();
                         break;
                     }
                     mov => {
@@ -101,9 +106,16 @@ fn main() {
                         println!("Step {}\n{}", i, state);
                     }
                 }
+
+                if i > 150 {
+                    outcome = state.outcome();
+                    if outcome.is_some() {
+                        break;
+                    }
+                }
             }
 
-            save_trace(trace);
+            save_trace(trace, outcome);
         }
         Err(e) => {
             let path = get_python_path();

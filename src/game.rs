@@ -47,7 +47,8 @@ fn call_py_model(
 inp = np.concatenate((encoded_boards, encoded_meta), axis=-1).astype(np.float32)
 inp = inp.transpose((2, 0, 1))
 inp = torch.from_numpy(inp[np.newaxis, :])
-ret_distr, ret_score = model(inp.to(device))
+with torch.no_grad():
+    ret_distr, ret_score = model(inp.to(device))
 ret_distr = ret_distr.detach().cpu().numpy().squeeze()
 ret_score = ret_score.detach().cpu().item()
 "#;
@@ -130,6 +131,11 @@ impl Game<BoardState> for Chess<'_> {
             moves_distr
         } else {
             let sum = moves_distr.iter().sum::<f32>() + 1e-5;
+
+            if !sum.is_finite() {
+                println!("Warning: {:?}", moves_distr);
+            }
+
             moves_distr.iter().map(|x| x / sum).collect()
         };
 
