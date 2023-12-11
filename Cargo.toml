@@ -3,6 +3,15 @@ name = "smartchess"
 version = "0.0.0"
 edition = "2021"
 
+[lib]
+name = "encoder"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "smartchess"
+path = "src/main.rs"
+
 [dependencies]
 pyo3 = { version = "0.20.0", features = ["auto-initialize"] }
 numpy = "0.20.0"

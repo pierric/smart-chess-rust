@@ -68,7 +68,15 @@ class ChessModule(torch.nn.Module):
         return v1, v2
 
 
-def load_model():
+def load_model(device=None, checkpoint=None, inference=True):
+    device = device or "cpu"
     model = ChessModule()
-    model.eval()
-    return torch.compile(model, mode="reduce-overhead")
+
+    if checkpoint:
+        print("..loading checkpoint: ", checkpoint)
+        model.load_state_dict(torch.load(checkpoint), strict=False)
+    
+    if inference:
+        model.eval()
+
+    return torch.compile(model, mode="reduce-overhead").to(device)
