@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use crate::chess::{EncodeError, Move, PieceType};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
-use crate::chess::{PieceType, Move, EncodeError};
+use std::collections::HashMap;
 
 const _PROMOTIONS: [(Option<PieceType>, i32); 3] = [
     (Some(PieceType::Knight), 0),
@@ -11,13 +11,11 @@ const _PROMOTIONS: [(Option<PieceType>, i32); 3] = [
 
 const _TYPE_OFFSET: i32 = 64;
 
-pub fn encode(mov: &Move) -> Result<i32, EncodeError>  {
+pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
     let _promotions = HashMap::from(_PROMOTIONS);
 
     let is_underpromotion =
-        _promotions.contains_key(&mov.promotion)
-        && mov.from.rank == 6
-        && mov.to.rank == 7;
+        _promotions.contains_key(&mov.promotion) && mov.from.rank == 6 && mov.to.rank == 7;
 
     if !is_underpromotion {
         return Err(EncodeError::NotPromotion);
@@ -42,7 +40,8 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError>  {
             ("_TYPE_OFFSET", _TYPE_OFFSET.to_object(py)),
             ("from_rank", mov.from.rank.to_object(py)),
             ("from_file", mov.from.file.to_object(py)),
-        ].into_py_dict(py);
+        ]
+        .into_py_dict(py);
 
         let code = r#"
 underpromotion_type = np.ravel_multi_index((direction_idx, promotion_idx), (3, 3))
@@ -50,6 +49,11 @@ move_type = _TYPE_OFFSET + underpromotion_type;
 ret = np.ravel_multi_index((from_rank, from_file, move_type), (8, 8, 73))"#;
 
         py.run(code, None, Some(locals)).unwrap();
-        locals.get_item("ret").unwrap().unwrap().extract().map_err(EncodeError::PythonError)
+        locals
+            .get_item("ret")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .map_err(EncodeError::PythonError)
     })
 }

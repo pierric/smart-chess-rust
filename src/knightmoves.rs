@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use crate::chess::EncodeError;
+use crate::chess::Move;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
-use crate::chess::Move;
-use crate::chess::EncodeError;
+use std::collections::HashMap;
 
 const _DIRECTIONS: [((i32, i32), i32); 8] = [
     ((2, 1), 0),
@@ -37,9 +37,12 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
             ("np", np.to_object(py)),
             ("from_rank", mov.from.rank.to_object(py)),
             ("from_file", mov.from.file.to_object(py)),
-            ("move_type", move_type.to_object(py))
-        ].into_py_dict(py);
+            ("move_type", move_type.to_object(py)),
+        ]
+        .into_py_dict(py);
         let code = "np.ravel_multi_index((from_rank, from_file, move_type), (8, 8, 73))";
-        py.eval(code, None, Some(locals)).and_then(|r| r.extract::<i32>()).map_err(EncodeError::PythonError)
+        py.eval(code, None, Some(locals))
+            .and_then(|r| r.extract::<i32>())
+            .map_err(EncodeError::PythonError)
     })
 }

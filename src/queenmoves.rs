@@ -1,10 +1,10 @@
+use crate::chess::{EncodeError, Move, PieceType};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
-use crate::chess::{Move, EncodeError, PieceType};
-
 
 pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
-    let is_queen_move_promotion = mov.promotion.is_none() | (mov.promotion == Some(PieceType::Queen));
+    let is_queen_move_promotion =
+        mov.promotion.is_none() | (mov.promotion == Some(PieceType::Queen));
     let delta0 = mov.to.rank - mov.from.rank;
     let delta1 = mov.to.file - mov.from.file;
 
@@ -16,7 +16,7 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
     let distance_idx = distance - 1;
 
     if !is_queen_move {
-        return Err(EncodeError::NotQueenMove)
+        return Err(EncodeError::NotQueenMove);
     }
 
     Python::with_gil(|py| {
@@ -31,7 +31,8 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
             ("from_rank", mov.from.rank.to_object(py)),
             ("from_file", mov.from.file.to_object(py)),
             ("distance_idx", distance_idx.to_object(py)),
-        ].into_py_dict(py);
+        ]
+        .into_py_dict(py);
 
         let code = r#"
 direction = np.sign([delta0, delta1])
@@ -51,6 +52,11 @@ action = np.ravel_multi_index(
     (8, 8, 73)
 )"#;
         py.run(code, None, Some(&locals)).unwrap();
-        locals.get_item("action").unwrap().unwrap().extract().map_err(EncodeError::PythonError)
+        locals
+            .get_item("action")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .map_err(EncodeError::PythonError)
     })
 }

@@ -16,3 +16,5 @@ Cargo.lock
 scripts/.ipynb_checkpoints
 **/__pycache__
 .python-version
+runs*/
+trace*.json
