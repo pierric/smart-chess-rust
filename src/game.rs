@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
 use std::ptr::NonNull;
 
-const LOOKBACK: usize = 8;
+pub const LOOKBACK: usize = 8;
 
 pub trait Game<S>
 where
@@ -50,6 +50,7 @@ inp = torch.from_numpy(inp[np.newaxis, :])
 with torch.no_grad():
     ret_distr, ret_score = model(inp.to(device))
 ret_distr = ret_distr.detach().cpu().numpy().squeeze()
+ret_distr = np.exp(ret_distr)
 ret_score = ret_score.detach().cpu().item()
 "#;
         let locals = [
@@ -59,11 +60,23 @@ ret_score = ret_score.detach().cpu().item()
             ("encoded_meta", encoded_meta.as_ref()),
             ("model", model.as_ref(py)),
             ("device", PyString::new(py, device)),
-        ].into_py_dict(py);
+        ]
+        .into_py_dict(py);
         py.run(code, Some(locals), None).unwrap();
 
-        let full_distr: &PyArray1<f32> = locals.get_item("ret_distr").unwrap().unwrap().extract().unwrap();
-        let score: f32 = locals.get_item("ret_score").unwrap().unwrap().extract().unwrap();
+        let full_distr: &PyArray1<f32> = locals
+            .get_item("ret_distr")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
+        let score: f32 = locals
+            .get_item("ret_score")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
+        let score = score * (if rotate { -1. } else { 1. });
 
         let encoded_moves: Vec<i32> = steps
             .iter()
@@ -97,7 +110,7 @@ impl Game<BoardState> for Chess<'_> {
 
         let mut cur = NonNull::from(node);
         for _ in 0..LOOKBACK {
-            let ref n = unsafe { cur.as_ref() };
+            let n = unsafe { cur.as_ref() };
             history.push(&n.step);
             match n.parent {
                 None => break,
