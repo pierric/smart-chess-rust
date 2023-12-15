@@ -23,7 +23,7 @@ def _get_outcome(res):
 
     if res["winner"] == "White":
         return 1.
-    
+
     return -1.
 
 
@@ -31,7 +31,7 @@ class ChessDataset(Dataset):
     def __init__(self, trace_file):
         with open(trace_file, "r") as f:
             trace = json.load(f)
-    
+
         self.outcome = _get_outcome(trace["outcome"])
         steps = [
             (chess.Move.from_uci(step[0]), [c[0] for c in step[2]])
@@ -39,12 +39,12 @@ class ChessDataset(Dataset):
         ]
         self.steps = libencoder.encode(steps)
 
-    
+
     def __len__(self):
         return len(self.steps)
 
     def __getitem__(self, idx):
-        boards, meta, dist = self.steps[idx]
+        boards, meta, dist = self.steps[idx][:3]
         inp = np.concatenate((boards, meta), axis=-1).astype(np.float32)
         inp = inp.transpose((2, 0, 1))
         return torch.from_numpy(inp), torch.from_numpy(dist), torch.tensor([self.outcome], dtype=torch.float32)
@@ -53,7 +53,8 @@ class ChessDataset(Dataset):
 class ChessLightningModule(L.LightningModule):
     def __init__(self, config):
         super().__init__()
-        self.model = load_model()
+        self.save_hyperparameters()
+        self.model = load_model(checkpoint=config["last_ckpt"])
         self.config = config
 
     def training_step(self, batch, batch_idx):
@@ -84,11 +85,13 @@ class ChessLightningModule(L.LightningModule):
             }
         }
 
-    
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--trace-file", action="append")
+    parser.add_argument("-n", "--epochs", type=int, default=4)
+    parser.add_argument("-c", "--last-ckpt", type=str)
     args = parser.parse_args()
 
     if not args.trace_file:
@@ -102,15 +105,17 @@ def main():
     train_loader = DataLoader(dss, num_workers=4, batch_size=2, shuffle=True)
 
     config = dict(
-        epochs = 8,
+        epochs = args.epochs,
         steps_per_epoch = len(train_loader),
         lr = 1e-3,
+        trace_files = args.trace_file,
+        last_ckpt = args.last_ckpt,
     )
 
     module = ChessLightningModule(config)
-    trainer = L.Trainer(logger=logger, callbacks=[lr_monitor], max_epochs=config["epochs"])
+    trainer = L.Trainer(logger=logger, callbacks=[lr_monitor], max_epochs=config["epochs"], log_every_n_steps=5)
     trainer.fit(model=module, train_dataloaders=train_loader)
-    trainer.save_checkpoint("last.ckpt")
+    # trainer.save_checkpoint("last.ckpt")
 
 
 if __name__ == "__main__":
