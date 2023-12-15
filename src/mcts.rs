@@ -57,7 +57,10 @@ fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32) {
         }
     }
 
-    ptr.q_value += reward;
+    // IMPORTANT: don't update the q of the root node
+    // assuming the NN isn't biased to judge who wins,
+    // it would tend to say the opponent can win, so
+    // propagating the q will ultimately depress the root.
 }
 
 fn select<'a, G, S>(
@@ -79,8 +82,10 @@ where
     loop {
         let (steps, prior, outcome) = game.predict(&*ptr, &state, false);
 
+        ptr.num_act += 1;
+
         if ptr.children.is_empty() {
-            return (ptr, steps, outcome);
+            return (ptr, steps, f32::signum(outcome));
         }
 
         let best = if ptr.children.len() == 1 {
@@ -89,18 +94,20 @@ where
             // otherwise, explore by the predicted distrubtion + the Dir(0.03) noise
             // https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
             let dir = Dirichlet::<f64>::new_with_size(0.03, prior.len()).unwrap();
-            let prior_rand = prior
+            let prior_rand: Vec<f32> = prior
                 .iter()
                 .zip(dir.sample(&mut thread_rng()))
-                .map(|(p, n)| p * 0.75 + n as f32 * 0.25);
+                .map(|(p, n)| p * 0.75 + n as f32 * 0.25)
+                .collect();
             let sqrt_total_num_vis =
                 f32::sqrt(i32::sum(ptr.children.iter().map(|c| c.num_act)) as f32);
             let uct_children: Vec<f32> = prior_rand
+                .iter()
                 .zip(ptr.children.iter())
                 .map(|(prior, child)| {
                     uct(
                         sqrt_total_num_vis,
-                        prior,
+                        *prior,
                         child.q_value,
                         child.num_act,
                         reverse_q,
@@ -108,6 +115,9 @@ where
                     )
                 })
                 .collect();
+            // let uct: Vec<(f32, f32, i32, f32)> = prior_rand.iter().zip(ptr.children.iter()).zip(uct_children.iter()).map(|((p, c), u)| (*p, c.q_value, c.num_act, *u)).collect();
+            // println!("sqrt total n {:?}", sqrt_total_num_vis);
+            // println!("uct {:?}", uct);
             find_max(uct_children.into_iter()).unwrap()
         };
 
@@ -115,7 +125,6 @@ where
         RecRef::extend(&mut ptr, |node: &mut Node<S::Step>| {
             node.children[best].as_mut()
         });
-        ptr.num_act += 1;
     }
 }
 

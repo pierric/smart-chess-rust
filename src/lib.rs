@@ -10,7 +10,7 @@ pub mod queenmoves;
 pub mod underpromotions;
 
 #[pyfunction]
-fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObject, PyObject)>> {
+fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
     let mut history = chess::BoardHistory::new(game::LOOKBACK);
     let mut board_state = chess::BoardState::new();
 
@@ -45,8 +45,8 @@ fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObje
                 .collect();
 
             let mut encoded_dist = Array1::<f32>::zeros((8 * 8 * 73,));
-            for (k, v) in moves_indices.into_iter().zip(moves_values.into_iter()) {
-                encoded_dist[Ix1(k as usize)] = v;
+            for (k, v) in moves_indices.iter().zip(moves_values.into_iter()) {
+                encoded_dist[Ix1(*k as usize)] = v;
             }
 
             let encoded_boards: &PyArray3<u32> = PyArray3::from_array(py, &encoded_boards);
@@ -57,6 +57,7 @@ fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObje
                 encoded_boards.into_py(py),
                 encoded_meta.into_py(py),
                 encoded_dist.into_py(py),
+                moves_indices.into_py(py),
             ));
         }
     });

@@ -17,7 +17,7 @@ pub enum EncodeError {
     NotPromotion,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
@@ -25,7 +25,7 @@ pub struct Move {
     pub drop: Option<PieceType>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Square {
     pub rank: i32,
     pub file: i32,
@@ -47,13 +47,13 @@ pub enum Color {
     White,
 }
 
-#[derive(Copy, Clone, Debug, FromPyObject)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, FromPyObject)]
 pub struct Piece {
     pub piece_type: PieceType,
     pub color: Color,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct Board {
     pub last_move: Option<Move>,
     pub turn: Color,

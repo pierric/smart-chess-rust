@@ -2,6 +2,9 @@ use clap::Parser;
 use pyo3::prelude::*;
 use std::fs::File;
 use std::io::Write;
+use rand::thread_rng;
+use rand::distributions::WeightedIndex;
+use rand::distributions::Distribution;
 
 mod chess;
 mod game;
@@ -9,8 +12,6 @@ mod knightmoves;
 mod mcts;
 mod queenmoves;
 mod underpromotions;
-
-const EPSILON: f32 = 1e05;
 
 fn get_python_path() -> Py<PyAny> {
     return Python::with_gil(|py| {
@@ -24,21 +25,28 @@ fn get_python_path() -> Py<PyAny> {
 fn step(
     cursor: &mut mcts::CursorMut<chess::Board>,
     state: &mut chess::BoardState,
+    temp: f32,
 ) -> Option<chess::Move> {
-    let opt_choice = cursor.current().children.iter().enumerate().max_by(|a, b| {
-        let v1 = a.1.q_value / (a.1.num_act as f32 + EPSILON);
-        let v2 = b.1.q_value / (b.1.num_act as f32 + EPSILON);
-        v1.partial_cmp(&v2).unwrap()
-    });
-    match opt_choice {
-        None => None,
-        Some((idx, _)) => {
-            cursor.move_children(idx);
-            let step = &cursor.current().step;
-            game::State::advance(state, step);
-            step.last_move
-        }
+    let num_act_vec = cursor.current().children.iter().map(|a| a.num_act);
+
+    if num_act_vec.len() == 0 {
+        return None
     }
+
+    let choice: usize = if temp == 0.0 {
+        num_act_vec.enumerate().max_by(|a, b| {
+            a.1.cmp(&b.1)
+        }).unwrap().0
+    } else {
+        let power = 1.0 / temp;
+        let weights = WeightedIndex::new(num_act_vec.map(|n| (n as f32).powf(power))).unwrap();
+        weights.sample(&mut thread_rng())
+    };
+
+    cursor.move_children(choice);
+    let step = &cursor.current().step;
+    game::State::advance(state, step);
+    step.last_move
 }
 
 fn save_trace(
@@ -72,6 +80,12 @@ struct Args {
 
     #[arg(short, long, default_missing_value = None)]
     checkpoint: Option<String>,
+
+    #[arg(long, default_value_t = 0.0)]
+    temperature: f32,
+
+    #[arg(long, default_value_t = 1.0)]
+    cpuct: f32,
 }
 
 fn main() {
@@ -109,7 +123,11 @@ fn main() {
 
             for i in 0..args.num_steps {
                 let rev = cursor.current().step.turn == chess::Color::Black;
-                mcts::mcts(&chess, cursor.current(), &state, args.rollout, rev, None);
+                let temperature = if i < 20 {args.temperature} else {0.5};
+                //let rollout = args.rollout * std::cmp::max(1, i / 40);
+                let rollout = state.next_steps().len() as i32 * 2;
+                println!("Rollout {:?} Temp {:?}", rollout, temperature);
+                mcts::mcts(&chess, cursor.current(), &state, rollout, rev, Some(args.cpuct));
 
                 let node = cursor.current();
                 let q_value = node.q_value;
@@ -119,7 +137,8 @@ fn main() {
                     .map(|c| (c.num_act, c.q_value))
                     .collect();
 
-                match step(&mut cursor, &mut state) {
+
+                match step(&mut cursor, &mut state, temperature) {
                     None => {
                         outcome = state.outcome();
                         break;
