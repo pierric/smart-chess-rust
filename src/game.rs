@@ -5,6 +5,10 @@ use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
 use std::ptr::NonNull;
+use cached::proc_macro::cached;
+use cached::SizedCache;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 pub const LOOKBACK: usize = 8;
 
@@ -31,6 +35,17 @@ pub struct Chess<'a> {
     pub device: &'a str,
 }
 
+#[cached(
+    type = "SizedCache<(String, bool, u64), (Vec<f32>, f32)>",
+    create = "{ SizedCache::with_size(500) }",
+    convert = r#"{
+        let mut hasher = DefaultHasher::new();
+        boards.hash(&mut hasher);
+        meta.hash(&mut hasher);
+        steps.hash(&mut hasher);
+        (String::from(device), rotate, hasher.finish())
+    }"#
+)]
 fn call_py_model(
     model: &Py<PyAny>,
     device: &str,
