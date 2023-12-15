@@ -1,0 +1,9 @@
+#!/bin/bash
+
+N=${N:-10};
+for run_idx in `seq $N`; do
+  if [ -f "trace${run_idx}.json" ]; then
+    echo -n "$run_idx: ";
+    cat "trace${run_idx}.json" | jq -r ".outcome.winner";
+  fi
+done

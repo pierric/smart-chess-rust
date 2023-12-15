@@ -1,0 +1,17 @@
+#!/bin/bash -eu
+
+export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
+export PYTHONPATH=$ROOT/py:$ROOT/target/release
+
+cd $ROOT
+
+CURR=$(ls runs/ | sort -V -r | head -n 1)
+ITER=$(( $CURR + 1))
+echo "Iteration $ITER"
+
+mkdir -p runs/$ITER
+mv trace*.json runs/$ITER/
+
+pushd runs/$ITER
+    python $ROOT/scripts/train.py -t trace1.json -t trace2.json -t trace3.json -t trace4.json -t trace5.json -t trace6.json -t trace7.json -t trace8.json -t trace9.json -t trace10.json -n 2 -c ../14/tb_logs/chess/version_0/checkpoints/epoch\=1-step\=1628.ckpt
+popd

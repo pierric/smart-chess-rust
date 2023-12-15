@@ -1,3 +1,4 @@
+set -eu
 export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
 export PYTHONPATH="$ROOT/py"
 ARGS=$@
