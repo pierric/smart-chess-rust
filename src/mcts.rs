@@ -57,10 +57,9 @@ fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32) {
         }
     }
 
-    // IMPORTANT: don't update the q of the root node
-    // assuming the NN isn't biased to judge who wins,
-    // it would tend to say the opponent can win, so
-    // propagating the q will ultimately depress the root.
+    // updating the root isn't super necessary, as the root
+    // does participate in select during one mcts step
+    ptr.q_value += reward;
 }
 
 fn select<'a, G, S>(

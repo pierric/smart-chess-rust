@@ -1,0 +1,31 @@
+#!/bin/bash -eu
+
+join() {
+    local -n _array_to_print=$2
+    local IFS=
+    local _string_to_print="${_array_to_print[*]/#/"$1"}"
+    echo "${_string_to_print/%"$1"}"
+}
+
+export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
+export PYTHONPATH=$ROOT/py:$ROOT/target/release
+
+cd $ROOT
+
+CURR=$(ls runs/ | sort -V -r | head -n 1)
+ITER=$(( $CURR + 1))
+echo "Iteration $ITER"
+
+mkdir -p runs/$ITER
+mv trace*.json runs/$ITER/
+
+pushd runs/$ITER
+trace_files=( $(ls trace*.json) )
+trace_args=$(join " -t " trace_files)
+ckpt_file=$(find ../$CURR/tb_logs -name "*.ckpt" | tail -n 1)
+set -x
+python $ROOT/scripts/train.py $trace_args -n 2 -c $ckpt_file
+popd
+
+ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
+scripts/run_batch -d cuda -n 200 -r 3.0 --temperature 1.0 --cpuct 2.0 --checkpoint $ckpt_file

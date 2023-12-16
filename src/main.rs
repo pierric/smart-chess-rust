@@ -69,8 +69,8 @@ struct Args {
     #[arg(short, long)]
     device: String,
 
-    #[arg(short, long, default_value_t = 100)]
-    rollout: i32,
+    #[arg(short, long, default_value_t = 2.0)]
+    rollout_factor: f32,
 
     #[arg(short, long, default_value_t = 10)]
     num_steps: i32,
@@ -124,8 +124,7 @@ fn main() {
             for i in 0..args.num_steps {
                 let rev = cursor.current().step.turn == chess::Color::Black;
                 let temperature = if i < 20 {args.temperature} else {0.5};
-                //let rollout = args.rollout * std::cmp::max(1, i / 40);
-                let rollout = state.next_steps().len() as i32 * 2;
+                let rollout = (state.next_steps().len() as f32 * args.rollout_factor) as i32;
                 println!("Rollout {:?} Temp {:?}", rollout, temperature);
                 mcts::mcts(&chess, cursor.current(), &state, rollout, rev, Some(args.cpuct));
 
