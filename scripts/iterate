@@ -12,20 +12,26 @@ export PYTHONPATH=$ROOT/py:$ROOT/target/release
 
 cd $ROOT
 
-CURR=$(ls runs/ | sort -V -r | head -n 1)
+LAST_=$(ls runs/ | sort -V -r | head -n 1)
+CURR=${LAST:-$LAST_}
 ITER=$(( $CURR + 1))
 echo "Iteration $ITER"
 
 mkdir -p runs/$ITER
-mv trace*.json runs/$ITER/
+
+if [ -z "$(ls | grep 'trace*')" ]; then
+    echo "no trace files. I assume they have been moved already"
+else
+    mv trace*.json runs/$ITER/
+fi
 
 pushd runs/$ITER
 trace_files=( $(ls trace*.json) )
 trace_args=$(join " -t " trace_files)
 ckpt_file=$(find ../$CURR/tb_logs -name "*.ckpt" | tail -n 1)
 set -x
-python $ROOT/scripts/train.py $trace_args -n 2 -c $ckpt_file
+python $ROOT/scripts/train.py $trace_args -n 3 -c $ckpt_file
 popd
 
 ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
-scripts/run_batch -d cuda -n 200 -r 3.0 --temperature 1.0 --cpuct 2.0 --checkpoint $ckpt_file
+scripts/run_batch -d cuda -n 300 -r 3.0 --temperature 1.0 --cpuct 2.0 --checkpoint $ckpt_file

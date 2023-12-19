@@ -124,7 +124,12 @@ fn main() {
             for i in 0..args.num_steps {
                 let rev = cursor.current().step.turn == chess::Color::Black;
                 let temperature = if i < 20 {args.temperature} else {0.5};
-                let rollout = (state.next_steps().len() as f32 * args.rollout_factor) as i32;
+
+                let mut rollout = (state.next_steps().len() as f32 * args.rollout_factor) as i32;
+                if i > 200 {
+                    rollout = rollout * 2;
+                }
+
                 println!("Rollout {:?} Temp {:?}", rollout, temperature);
                 mcts::mcts(&chess, cursor.current(), &state, rollout, rev, Some(args.cpuct));
 
