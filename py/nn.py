@@ -69,6 +69,8 @@ class ChessModule(torch.nn.Module):
 
 
 def load_model(device=None, checkpoint=None, inference=True):
+    torch.manual_seed(0)
+    
     device = device or "cpu"
     model = ChessModule()
 

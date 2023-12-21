@@ -19,7 +19,7 @@ echo "Iteration $ITER"
 
 mkdir -p runs/$ITER
 
-if [ -z "$(ls | grep 'trace*')" ]; then
+if [ -z "$(ls | grep -E 'trace.+\.json')" ]; then
     echo "no trace files. I assume they have been moved already"
 else
     mv trace*.json runs/$ITER/
@@ -34,4 +34,4 @@ python $ROOT/scripts/train.py $trace_args -n 3 -c $ckpt_file
 popd
 
 ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
-scripts/run_batch -d cuda -n 300 -r 3.0 --temperature 1.0 --cpuct 2.0 --checkpoint $ckpt_file
+scripts/run_batch -d cuda -n 300 -r 3.0 --temperature 1.0 --cpuct 0.1 --checkpoint $ckpt_file

@@ -4,7 +4,7 @@ use pyo3::conversion::IntoPy;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use serde::{Serialize, Serializer};
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Not;
@@ -41,7 +41,7 @@ pub enum PieceType {
     King,
 }
 
-#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize)]
+#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Color {
     Black = 0,
     White,
@@ -66,7 +66,7 @@ pub struct Board {
     pub has_queenside_castling_rights: (bool, bool),
 }
 
-#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize)]
+#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Termination {
     Checkmate = 1,
     Stalemate,
@@ -80,7 +80,7 @@ pub enum Termination {
     VariantDraw,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Outcome {
     pub termination: Termination,
     pub winner: Option<Color>,
@@ -203,6 +203,32 @@ impl Serialize for Move {
         S: Serializer,
     {
         serializer.serialize_str(&self.uci())
+    }
+}
+
+impl<'a> Deserialize<'a> for Move {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'a>
+    {
+        struct MoveVisitor;
+
+        impl<'a> serde::de::Visitor<'a> for MoveVisitor {
+            type Value = Move;
+        
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a move")
+            }
+        
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(Move::from_uci(v))
+            }
+        }
+
+        deserializer.deserialize_string(MoveVisitor)
     }
 }
 
@@ -408,6 +434,17 @@ impl Move {
             (None, Some(p)) => format!("{}{}{}", self.from.symbol(), self.to.symbol(), p.symbol()),
             (None, None) => format!("{}{}", self.from.symbol(), self.to.symbol()),
         }
+    }
+
+    pub fn from_uci(uci: &str) -> Self {
+        Python::with_gil(|py| {
+            py.import("chess")
+              .and_then(|chess| chess.getattr("Move"))
+              .and_then(|cls| cls.getattr("from_uci"))
+              .and_then(|func| func.call1((uci,)))
+              .and_then(|mov| mov.extract())
+              .unwrap()
+        })
     }
 
     pub fn rotate(&self) -> Self {
