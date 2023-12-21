@@ -63,6 +63,63 @@ fn save_trace(
     file.write_all(json.to_string().as_bytes()).unwrap();
 }
 
+#[allow(unused_variables, dead_code, unused_mut)]
+fn debug_trace(chess: game::Chess, filename: &str) {
+    use std::io::BufReader;
+    use std::ptr::NonNull;
+    use crate::game::Game;
+    let mut file = File::open(filename).unwrap();
+    let reader = BufReader::new(file);
+    let trace: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(reader).unwrap();
+    let steps = trace["steps"].as_array().unwrap();
+
+    let mut state = chess::BoardState::new();
+    let mut root = mcts::Node {
+        step: state.to_board(),
+        q_value: 0.,
+        num_act: 0,
+        parent: None,
+        children: Vec::new(),
+    };
+    let mut cursor = root.as_cursor_mut();
+    for idx in 0..230 {
+        let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
+        let mov = chess::Move::from_uci(mov_uci);
+        let next_steps = state.next_steps();
+        let choice = next_steps.iter().position(|x| x.last_move == Some(mov)).unwrap();
+        let parent = NonNull::new(cursor.current() as *mut _);
+        cursor.current().children.extend(
+            next_steps
+            .into_iter()
+            .map(|step| {
+                Box::new(mcts::Node {
+                    step: step,
+                    q_value: 0.,
+                    num_act: 0,
+                    parent: parent,
+                    children: Vec::new(),
+                })
+            }));
+        cursor.move_children(choice);
+        game::State::advance(&mut state, &cursor.current().step);
+    }
+
+    //let rollout = (state.next_steps().len() as f32 * 6.0) as i32;
+    let rollout = 179;
+    println!("rollout: {}", rollout);
+
+    println!("{:?}", cursor.current().step.turn);
+    println!("{:?}", cursor.current().step.piece_map);
+
+    let (steps, prior, outcome) = chess.predict(cursor.current(), &state, false);
+    println!("{:?} {:?}", outcome, prior);
+
+    mcts::mcts(&chess, cursor.current(), &state, rollout, false, Some(0.05));
+    let children_num_act: Vec<(i32, f32)> =
+       cursor.current().children.iter().map(|n| (n.num_act, n.q_value)).collect();
+    println!("{:?}", children_num_act);
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
