@@ -121,6 +121,17 @@ impl Game<BoardState> for Chess<'_> {
         state: &BoardState,
         argmax: bool,
     ) -> (Vec<Board>, Vec<f32>, f32) {
+        let next_steps = state.next_steps();
+
+        if next_steps.is_empty() {
+            let outcome = match state.outcome().unwrap().winner {
+                None => 0.0,
+                Some(Color::White) => 1.0,
+                Some(Color::Black) => -1.0,
+            };
+            return (Vec::new(), Vec::new(), outcome);
+        }
+
         let mut history = BoardHistory::new(LOOKBACK);
 
         let mut cur = NonNull::from(node);
@@ -133,7 +144,6 @@ impl Game<BoardState> for Chess<'_> {
             }
         }
 
-        let next_steps = state.next_steps();
         let rotate = node.step.turn == Color::Black;
         let encoded_boards = history.view(rotate);
         let encoded_meta = node.step.encode_meta();

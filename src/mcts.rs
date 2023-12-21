@@ -84,8 +84,8 @@ where
         ptr.num_act += 1;
 
         if ptr.children.is_empty() {
-            let outcome_cutoff = if outcome > 0.5 {1.0} else if outcome < -0.5 {-1.0} else {0.0};
-            return (ptr, steps, outcome_cutoff);
+            // either game is end or yet to be explored
+            return (ptr, steps, outcome);
         }
 
         let best = if ptr.children.len() == 1 {
