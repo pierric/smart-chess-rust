@@ -19,7 +19,7 @@ fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObje
     Python::with_gil(|py| {
         for (mov, num_act) in steps.iter() {
             let step = board_state.to_board();
-            let next_steps = board_state.next_steps();
+            let legal_moves = board_state.legal_moves();
             board_state.next(mov);
             history.push(&step);
 
@@ -27,7 +27,7 @@ fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObje
             let encoded_boards = history.view(rotate);
             let encoded_meta = step.encode_meta();
 
-            let moves_indices: Vec<i32> = next_steps
+            let moves_indices: Vec<i32> = legal_moves
                 .iter()
                 .map(|b| {
                     let m = b.last_move.unwrap();

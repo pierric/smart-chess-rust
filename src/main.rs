@@ -85,11 +85,11 @@ fn debug_trace(chess: game::Chess, filename: &str) {
     for idx in 0..230 {
         let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
         let mov = chess::Move::from_uci(mov_uci);
-        let next_steps = state.next_steps();
-        let choice = next_steps.iter().position(|x| x.last_move == Some(mov)).unwrap();
+        let legal_moves = state.legal_moves();
+        let choice = legal_moves .iter().position(|x| x.last_move == Some(mov)).unwrap();
         let parent = NonNull::new(cursor.current() as *mut _);
         cursor.current().children.extend(
-            next_steps
+            legal_moves
             .into_iter()
             .map(|step| {
                 Box::new(mcts::Node {
@@ -104,7 +104,7 @@ fn debug_trace(chess: game::Chess, filename: &str) {
         game::State::advance(&mut state, &cursor.current().step);
     }
 
-    //let rollout = (state.next_steps().len() as f32 * 6.0) as i32;
+    //let rollout = (state.legal_moves().len() as f32 * 6.0) as i32;
     let rollout = 179;
     println!("rollout: {}", rollout);
 
@@ -182,7 +182,7 @@ fn main() {
                 let rev = cursor.current().step.turn == chess::Color::Black;
                 let temperature = if i < 20 {args.temperature} else {0.5};
 
-                let mut rollout = (state.next_steps().len() as f32 * args.rollout_factor) as i32;
+                let mut rollout = (state.legal_moves().len() as f32 * args.rollout_factor) as i32;
                 if i > 200 {
                     rollout = rollout * 2;
                 }

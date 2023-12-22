@@ -585,7 +585,7 @@ impl BoardState {
         .unwrap();
     }
 
-    pub fn next_steps(&self) -> Vec<Board> {
+    pub fn legal_moves(&self) -> Vec<Board> {
         Python::with_gil(|py| {
             let moves = self.python_object.getattr(py, intern!(py, "legal_moves"))?;
             let locals = [("board", &self.python_object), ("moves", &moves)].into_py_dict(py);

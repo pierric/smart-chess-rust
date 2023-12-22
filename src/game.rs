@@ -121,9 +121,9 @@ impl Game<BoardState> for Chess<'_> {
         state: &BoardState,
         argmax: bool,
     ) -> (Vec<Board>, Vec<f32>, f32) {
-        let next_steps = state.next_steps();
+        let legal_moves = state.legal_moves();
 
-        if next_steps.is_empty() {
+        if legal_moves.is_empty() {
             let outcome = match state.outcome().unwrap().winner {
                 None => 0.0,
                 Some(Color::White) => 1.0,
@@ -154,7 +154,7 @@ impl Game<BoardState> for Chess<'_> {
             encoded_boards,
             encoded_meta,
             rotate,
-            &next_steps,
+            &legal_moves,
         );
 
         let moves_distr: Vec<f32> = if argmax {
@@ -177,6 +177,6 @@ impl Game<BoardState> for Chess<'_> {
             moves_distr.iter().map(|x| x / sum).collect()
         };
 
-        return (next_steps, moves_distr, score);
+        return (legal_moves, moves_distr, score);
     }
 }
