@@ -34,7 +34,7 @@ class ChessDataset(Dataset):
 
         self.outcome = _get_outcome(trace["outcome"])
         steps = [
-            (chess.Move.from_uci(step[0]), [c[0] for c in step[2]])
+            (chess.Move.from_uci(step[0]), [c[1] for c in step[2]])
             for step in trace["steps"]
         ]
         self.steps = libencoder.encode(steps)
@@ -113,7 +113,7 @@ def main():
     )
 
     module = ChessLightningModule(config)
-    trainer = L.Trainer(logger=logger, callbacks=[lr_monitor], max_epochs=config["epochs"], log_every_n_steps=5)
+    trainer = L.Trainer(logger=logger, callbacks=[lr_monitor], max_epochs=config["epochs"], log_every_n_steps=20)
     trainer.fit(model=module, train_dataloaders=train_loader)
     # trainer.save_checkpoint("last.ckpt")
 

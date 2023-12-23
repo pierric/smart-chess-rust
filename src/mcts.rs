@@ -83,7 +83,7 @@ where
 
         ptr.num_act += 1;
 
-        if ptr.children.is_empty() {
+        if ptr.children.is_empty() || steps.is_empty() {
             // either game is end or yet to be explored
             return (ptr, steps, outcome);
         }
@@ -93,6 +93,10 @@ where
         } else {
             // otherwise, explore by the predicted distrubtion + the Dir(0.03) noise
             // https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
+            if prior.len() < 2 {
+                println!("Error: {:?} {:?} {:?}", ptr.children.len(), steps.len(), prior.len());
+                println!("len: {:?}", RecRef::size(&ptr));
+            }
             let dir = Dirichlet::<f64>::new_with_size(0.03, prior.len()).unwrap();
             let prior_rand: Vec<f32> = prior
                 .iter()

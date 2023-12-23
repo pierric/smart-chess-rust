@@ -565,6 +565,14 @@ impl BoardState {
         Python::with_gil(|py| self.python_object.extract(py).unwrap())
     }
 
+    #[allow(dead_code)]
+    pub fn fen(&self) -> String {
+        Python::with_gil(|py| {
+            let res = self.python_object.call_method0(py, intern!(py, "fen")).unwrap();
+            res.extract(py).unwrap()
+        })
+    }
+
     pub fn outcome(&self) -> Option<Outcome> {
         Python::with_gil(|py| {
             let kwargs = PyDict::new(py);

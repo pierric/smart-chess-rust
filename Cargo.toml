@@ -12,6 +12,10 @@ crate-type = ["cdylib"]
 name = "smartchess"
 path = "src/main.rs"
 
+[[bin]]
+name = "play"
+path = "src/play.rs"
+
 [dependencies]
 pyo3 = { version = "0.20.0", features = ["auto-initialize"] }
 numpy = "0.20.0"
@@ -24,3 +28,4 @@ serde_json = "1.0"
 clap = { version = "4.4.11", features = ["derive"] }
 backtrace-on-stack-overflow = "0.3.0"
 cached = "0.46.1"
+uci = "0.1.3"

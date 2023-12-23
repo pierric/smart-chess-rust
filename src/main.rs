@@ -1,7 +1,6 @@
 use clap::Parser;
 use pyo3::prelude::*;
 use std::fs::File;
-use std::io::Write;
 use rand::thread_rng;
 use rand::distributions::WeightedIndex;
 use rand::distributions::Distribution;
@@ -12,6 +11,7 @@ mod knightmoves;
 mod mcts;
 mod queenmoves;
 mod underpromotions;
+mod trace;
 
 fn get_python_path() -> Py<PyAny> {
     return Python::with_gil(|py| {
@@ -47,20 +47,6 @@ fn step(
     let step = &cursor.current().step;
     game::State::advance(state, step);
     step.last_move
-}
-
-fn save_trace(
-    filename: &str,
-    trace: Vec<(Option<chess::Move>, f32, Vec<(i32, f32)>)>,
-    outcome: Option<chess::Outcome>,
-) {
-    let json = serde_json::json!({
-        "steps": trace,
-        "outcome": outcome,
-    });
-
-    let mut file = File::create(filename).unwrap();
-    file.write_all(json.to_string().as_bytes()).unwrap();
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
@@ -162,7 +148,7 @@ fn main() {
 
     match r {
         Ok(nn) => {
-            let mut trace: Vec<(Option<chess::Move>, f32, Vec<(i32, f32)>)> = Vec::new();
+            let mut trace = trace::Trace::new();
             let chess = game::Chess {
                 model: nn,
                 device: &args.device,
@@ -192,10 +178,10 @@ fn main() {
 
                 let node = cursor.current();
                 let q_value = node.q_value;
-                let num_act_children: Vec<(i32, f32)> = node
+                let num_act_children: Vec<(chess::Move, i32, f32)> = node
                     .children
                     .iter()
-                    .map(|c| (c.num_act, c.q_value))
+                    .map(|c| (c.step.last_move.unwrap(), c.num_act, c.q_value))
                     .collect();
 
 
@@ -205,7 +191,7 @@ fn main() {
                         break;
                     }
                     mov => {
-                        trace.push((mov, q_value, num_act_children));
+                        trace.push(mov, q_value, num_act_children);
                         println!("Step {}\n{}", i, state);
                     }
                 }
@@ -218,7 +204,10 @@ fn main() {
                 }
             }
 
-            save_trace(&args.trace_file, trace, outcome);
+            if outcome.is_some() {
+                trace.set_outcome(outcome.unwrap());
+            }
+            trace.save(&args.trace_file);
         }
         Err(e) => {
             let path = get_python_path();

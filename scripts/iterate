@@ -30,7 +30,7 @@ trace_files=( $(ls trace*.json) )
 trace_args=$(join " -t " trace_files)
 ckpt_file=$(find ../$CURR/tb_logs -name "*.ckpt" | tail -n 1)
 set -x
-python $ROOT/scripts/train.py $trace_args -n 3 -c $ckpt_file
+python $ROOT/scripts/train.py $trace_args -n 8 -c $ckpt_file
 popd
 
 ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
