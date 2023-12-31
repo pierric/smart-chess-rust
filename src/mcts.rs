@@ -66,7 +66,6 @@ fn select<'a, G, S>(
     game: &G,
     node: &'a mut Node<S::Step>,
     state: &S,
-    reverse_q: bool,
     cpuct: f32,
 ) -> (RecRef<'a, Node<S::Step>>, Vec<S::Step>, f32)
 where
@@ -80,6 +79,7 @@ where
 
     loop {
         let (steps, prior, outcome) = game.predict(&*ptr, &state, false);
+        let reverse_q = game.reverse_q(&*ptr);
 
         ptr.num_act += 1;
 
@@ -137,7 +137,6 @@ pub fn mcts<G, S>(
     node: &mut Node<S::Step>,
     state: &S,
     n_rollout: i32,
-    reverse_q: bool,
     cpuct: Option<f32>,
 ) where
     G: Game<S>,
@@ -148,7 +147,7 @@ pub fn mcts<G, S>(
 
     for _ in 0..n_rollout {
         let local_state = state.dup();
-        let (mut path, steps, reward) = select(game, node, &local_state, reverse_q, cpuct);
+        let (mut path, steps, reward) = select(game, node, &local_state, cpuct);
 
         // path points at a leaf node, either game is done, or it isn't finished
         path.children = steps

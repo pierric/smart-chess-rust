@@ -22,6 +22,8 @@ where
         state: &S,
         argmax: bool,
     ) -> (Vec<S::Step>, Vec<f32>, f32);
+
+    fn reverse_q(&self, node: &Node<S::Step>) -> bool;
 }
 
 pub trait State {
@@ -91,6 +93,7 @@ ret_score = ret_score.detach().cpu().item()
             .unwrap()
             .extract()
             .unwrap();
+        // how possible is white going to win
         let score = score * (if rotate { -1. } else { 1. });
 
         let encoded_moves: Vec<i32> = steps
@@ -178,5 +181,9 @@ impl Game<BoardState> for Chess<'_> {
         };
 
         return (legal_moves, moves_distr, score);
+    }
+
+    fn reverse_q(&self, node: &Node<Board>) -> bool {
+        node.step.turn == Color::Black
     }
 }

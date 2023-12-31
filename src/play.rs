@@ -73,7 +73,7 @@ fn main() {
     let mut cursor = root.as_cursor_mut();
 
     loop {
-        mcts::mcts(&chess, cursor.current(), &state, args.rollout, false, Some(args.cpuct));
+        mcts::mcts(&chess, cursor.current(), &state, args.rollout, Some(args.cpuct));
 
         let num_act_vec: Vec<i32> = cursor.current().children.iter().map(|a| a.num_act).collect();
         if num_act_vec.len() == 0 {

@@ -18,3 +18,11 @@ scripts/.ipynb_checkpoints
 .python-version
 runs*/
 trace*.json
+.ipynb_checkpoints
+
+bug-runs/
+bug-runs2/
+debug-traces/
+*.svg
+*.out
+*.data

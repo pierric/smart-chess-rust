@@ -7,6 +7,16 @@ join() {
     echo "${_string_to_print/%"$1"}"
 }
 
+clean() {
+    for f in `ls trace*.json`; do
+        winner=$(cat "$f" | jq -r ".outcome.winner")
+        if [ "$winner" = "null" ]; then
+            echo "remove $f because of no result"
+            rm $f
+        fi
+    done
+}
+
 export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
 export PYTHONPATH=$ROOT/py:$ROOT/target/release
 
@@ -25,13 +35,24 @@ else
     mv trace*.json runs/$ITER/
 fi
 
+set -ex
 pushd runs/$ITER
 trace_files=( $(ls trace*.json) )
 trace_args=$(join " -t " trace_files)
 ckpt_file=$(find ../$CURR/tb_logs -name "*.ckpt" | tail -n 1)
-set -x
-python $ROOT/scripts/train.py $trace_args -n 8 -c $ckpt_file
+TRAIN_EPOCHS=${TRAIN_EPOCHS:-4}
+python $ROOT/scripts/train.py $trace_args -n $TRAIN_EPOCHS -c $ckpt_file
 popd
 
 ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
-scripts/run_batch -d cuda -n 300 -r 3.0 --temperature 1.0 --cpuct 0.1 --checkpoint $ckpt_file
+infer_args="-d cuda -n 80 --temperature 1 --cpuct 1"
+scripts/run_batch $infer_args -r 3 --checkpoint $ckpt_file
+
+set +ex
+clean
+ls trace*.json
+ret=$?
+if [ $ret -gt 0 ]; then
+    scripts/run_batch $infer_args -r 6 --checkpoint $ckpt_file
+    clean
+fi

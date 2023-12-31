@@ -50,7 +50,7 @@ fn step(
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
-fn debug_trace(chess: game::Chess, filename: &str) {
+fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
     use std::io::BufReader;
     use std::ptr::NonNull;
     use crate::game::Game;
@@ -68,7 +68,7 @@ fn debug_trace(chess: game::Chess, filename: &str) {
         children: Vec::new(),
     };
     let mut cursor = root.as_cursor_mut();
-    for idx in 0..230 {
+    for idx in 0..target_step {
         let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
         let mov = chess::Move::from_uci(mov_uci);
         let legal_moves = state.legal_moves();
@@ -91,18 +91,18 @@ fn debug_trace(chess: game::Chess, filename: &str) {
     }
 
     //let rollout = (state.legal_moves().len() as f32 * 6.0) as i32;
-    let rollout = 179;
+    let rollout = 160;
     println!("rollout: {}", rollout);
 
     println!("{:?}", cursor.current().step.turn);
-    println!("{:?}", cursor.current().step.piece_map);
+    println!("{}", state);
 
     let (steps, prior, outcome) = chess.predict(cursor.current(), &state, false);
     println!("{:?} {:?}", outcome, prior);
 
-    mcts::mcts(&chess, cursor.current(), &state, rollout, false, Some(0.05));
-    let children_num_act: Vec<(i32, f32)> =
-       cursor.current().children.iter().map(|n| (n.num_act, n.q_value)).collect();
+    mcts::mcts(&chess, cursor.current(), &state, rollout, Some(0.05));
+    let children_num_act: Vec<(String, i32, f32)> =
+       cursor.current().children.iter().map(|n| (n.step.last_move.unwrap().uci(), n.num_act, n.q_value)).collect();
     println!("{:?}", children_num_act);
 }
 
@@ -153,6 +153,10 @@ fn main() {
                 model: nn,
                 device: &args.device,
             };
+
+            // debug_trace(chess, "debug-traces/trace4.json", 5);
+            // return;
+
             let mut state = chess::BoardState::new();
             let mut root = mcts::Node {
                 step: state.to_board(),
@@ -165,16 +169,15 @@ fn main() {
             let mut outcome = None;
 
             for i in 0..args.num_steps {
-                let rev = cursor.current().step.turn == chess::Color::Black;
-                let temperature = if i < 20 {args.temperature} else {0.5};
-
-                let mut rollout = (state.legal_moves().len() as f32 * args.rollout_factor) as i32;
-                if i > 200 {
-                    rollout = rollout * 2;
-                }
+                // let temperature = args.temperature;
+                let temperature = if i < 10 {1.0} else {args.temperature};
+                let rollout = (state.legal_moves().len() as f32 * args.rollout_factor) as i32;
+                //if i > 100 {
+                //    rollout = rollout * 2;
+                //}
 
                 println!("Rollout {:?} Temp {:?}", rollout, temperature);
-                mcts::mcts(&chess, cursor.current(), &state, rollout, rev, Some(args.cpuct));
+                mcts::mcts(&chess, cursor.current(), &state, rollout, Some(args.cpuct));
 
                 let node = cursor.current();
                 let q_value = node.q_value;
@@ -196,7 +199,7 @@ fn main() {
                     }
                 }
 
-                if i > 150 {
+                if i > 100 {
                     outcome = state.outcome();
                     if outcome.is_some() {
                         break;

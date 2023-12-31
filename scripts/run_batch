@@ -5,7 +5,7 @@ ARGS=$@
 N=10
 
 for run_idx in `seq $N`; do
-    echo "Run index" $run_idx
+    echo "Run index" $run_idx ".. $ARGS"
     cargo r --bin smartchess --release -- -t "trace${run_idx}.json" $ARGS
 done
 

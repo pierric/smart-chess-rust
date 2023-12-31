@@ -47,7 +47,10 @@ class ChessDataset(Dataset):
         boards, meta, dist = self.steps[idx][:3]
         inp = np.concatenate((boards, meta), axis=-1).astype(np.float32)
         inp = inp.transpose((2, 0, 1))
-        return torch.from_numpy(inp), torch.from_numpy(dist), torch.tensor([self.outcome], dtype=torch.float32)
+        turn = meta[0, 0, 0]
+        assert idx % 2 == 1 - turn
+        outcome = self.outcome * (1 if turn == 1 else -1)
+        return torch.from_numpy(inp), torch.from_numpy(dist), torch.tensor([outcome], dtype=torch.float32)
 
 
 class ChessLightningModule(L.LightningModule):
@@ -69,21 +72,22 @@ class ChessLightningModule(L.LightningModule):
         return loss1 + loss2
 
     def configure_optimizers(self):
-        from torch.optim.lr_scheduler import OneCycleLR
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.config["lr"])
-        scheduler = OneCycleLR(
-            optimizer=optimizer,
-            max_lr=self.config["lr"],
-            total_steps=self.config["steps_per_epoch"] * self.config["epochs"]
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-                "frequency": 1,
-            }
-        }
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"])
+        return optimizer
+        #from torch.optim.lr_scheduler import OneCycleLR
+        #scheduler = OneCycleLR(
+        #    optimizer=optimizer,
+        #    max_lr=self.config["lr"],
+        #    total_steps=self.config["steps_per_epoch"] * self.config["epochs"]
+        #)
+        #return {
+        #    "optimizer": optimizer,
+        #    "lr_scheduler": {
+        #        "scheduler": scheduler,
+        #        "interval": "step",
+        #        "frequency": 1,
+        #    }
+        #}
 
 
 
@@ -107,7 +111,7 @@ def main():
     config = dict(
         epochs = args.epochs,
         steps_per_epoch = len(train_loader),
-        lr = 1e-3,
+        lr = 1e-4,
         trace_files = args.trace_file,
         last_ckpt = args.last_ckpt,
     )
