@@ -64,7 +64,7 @@ fn main() {
 
     let mut state = chess::BoardState::new();
     let mut root = mcts::Node {
-        step: state.to_board(),
+        step: (None, chess::Color::White),
         q_value: 0.,
         num_act: 0,
         parent: None,
@@ -92,11 +92,11 @@ fn main() {
         let all_children: Vec<(chess::Move, i32, f32)> = cursor.current()
             .children
             .iter()
-            .map(|c| (c.step.last_move.unwrap(), c.num_act, c.q_value))
+            .map(|c| (c.step.0.unwrap(), c.num_act, c.q_value))
             .collect();
 
         cursor.move_children(choice);
-        let mov = cursor.current().step.last_move.unwrap();
+        let mov = cursor.current().step.0.unwrap();
         println!("White: {}", mov);
         trace.push(Some(mov), q_value, all_children);
         state.next(&mov);
@@ -116,7 +116,7 @@ fn main() {
         node.children.clear();
         node.children.push(
             Box::new(mcts::Node {
-                step: state.to_board(),
+                step: (Some(mov), chess::Color::White),
                 q_value: 0.,
                 num_act: 0,
                 parent: parent,

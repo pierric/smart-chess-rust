@@ -4,6 +4,7 @@ use rand_distr::{Dirichlet, Distribution};
 use recursive_reference::*;
 use std::iter::Sum;
 use std::ptr::NonNull;
+use std::ops::Deref;
 
 pub struct Node<T> {
     pub step: T,
@@ -65,7 +66,7 @@ fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32) {
 fn select<'a, G, S>(
     game: &G,
     node: &'a mut Node<S::Step>,
-    state: &S,
+    state: &mut S,
     cpuct: f32,
 ) -> (RecRef<'a, Node<S::Step>>, Vec<S::Step>, f32)
 where
@@ -75,11 +76,11 @@ where
     //Descend in the tree until some leaf, exploiting the knowledge to choose
     //the best child each time.
     let mut ptr: RecRef<Node<S::Step>> = RecRef::new(node);
-    let mut state = state.dup();
 
     loop {
-        let (steps, prior, outcome) = game.predict(&*ptr, &state, false);
-        let reverse_q = game.reverse_q(&*ptr);
+        let node = ptr.deref();
+        let (steps, prior, outcome) = game.predict(node, &state, false);
+        let reverse_q = game.reverse_q(node);
 
         ptr.num_act += 1;
 
@@ -146,8 +147,8 @@ pub fn mcts<G, S>(
     let cpuct = cpuct.unwrap_or(default_cpuct);
 
     for _ in 0..n_rollout {
-        let local_state = state.dup();
-        let (mut path, steps, reward) = select(game, node, &local_state, cpuct);
+        let mut local_state = state.dup();
+        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct);
 
         // path points at a leaf node, either game is done, or it isn't finished
         path.children = steps

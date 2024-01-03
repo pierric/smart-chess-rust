@@ -29,8 +29,7 @@ fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObje
 
             let moves_indices: Vec<i32> = legal_moves
                 .iter()
-                .map(|b| {
-                    let m = b.last_move.unwrap();
+                .map(|m| {
                     if rotate {
                         m.rotate().encode()
                     } else {

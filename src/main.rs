@@ -23,7 +23,7 @@ fn get_python_path() -> Py<PyAny> {
 }
 
 fn step(
-    cursor: &mut mcts::CursorMut<chess::Board>,
+    cursor: &mut mcts::CursorMut<<chess::BoardState as game::State>::Step>,
     state: &mut chess::BoardState,
     temp: f32,
 ) -> Option<chess::Move> {
@@ -46,7 +46,7 @@ fn step(
     cursor.move_children(choice);
     let step = &cursor.current().step;
     game::State::advance(state, step);
-    step.last_move
+    step.0
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
@@ -61,7 +61,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
 
     let mut state = chess::BoardState::new();
     let mut root = mcts::Node {
-        step: state.to_board(),
+        step: (None, chess::Color::White),
         q_value: 0.,
         num_act: 0,
         parent: None,
@@ -72,14 +72,16 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
         let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
         let mov = chess::Move::from_uci(mov_uci);
         let legal_moves = state.legal_moves();
-        let choice = legal_moves .iter().position(|x| x.last_move == Some(mov)).unwrap();
-        let parent = NonNull::new(cursor.current() as *mut _);
-        cursor.current().children.extend(
+        let choice = legal_moves.iter().position(|m| *m == mov).unwrap();
+        let current = cursor.current();
+        let turn = current.step.1;
+        let parent = NonNull::new(current as *mut _);
+        current.children.extend(
             legal_moves
             .into_iter()
-            .map(|step| {
+            .map(|m| {
                 Box::new(mcts::Node {
-                    step: step,
+                    step: (Some(m), !turn),
                     q_value: 0.,
                     num_act: 0,
                     parent: parent,
@@ -94,7 +96,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
     let rollout = 160;
     println!("rollout: {}", rollout);
 
-    println!("{:?}", cursor.current().step.turn);
+    println!("{:?}", cursor.current().step.1);
     println!("{}", state);
 
     let (steps, prior, outcome) = chess.predict(cursor.current(), &state, false);
@@ -102,7 +104,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
 
     mcts::mcts(&chess, cursor.current(), &state, rollout, Some(0.05));
     let children_num_act: Vec<(String, i32, f32)> =
-       cursor.current().children.iter().map(|n| (n.step.last_move.unwrap().uci(), n.num_act, n.q_value)).collect();
+       cursor.current().children.iter().map(|n| (n.step.0.unwrap().uci(), n.num_act, n.q_value)).collect();
     println!("{:?}", children_num_act);
 }
 
@@ -159,7 +161,7 @@ fn main() {
 
             let mut state = chess::BoardState::new();
             let mut root = mcts::Node {
-                step: state.to_board(),
+                step: (None, chess::Color::White),
                 q_value: 0.,
                 num_act: 0,
                 parent: None,
@@ -169,12 +171,8 @@ fn main() {
             let mut outcome = None;
 
             for i in 0..args.num_steps {
-                // let temperature = args.temperature;
                 let temperature = if i < 10 {1.0} else {args.temperature};
-                let rollout = (state.legal_moves().len() as f32 * args.rollout_factor) as i32;
-                //if i > 100 {
-                //    rollout = rollout * 2;
-                //}
+                let rollout = i32::max(150, (state.legal_moves().len() as f32 * args.rollout_factor) as i32);
 
                 println!("Rollout {:?} Temp {:?}", rollout, temperature);
                 mcts::mcts(&chess, cursor.current(), &state, rollout, Some(args.cpuct));
@@ -184,7 +182,7 @@ fn main() {
                 let num_act_children: Vec<(chess::Move, i32, f32)> = node
                     .children
                     .iter()
-                    .map(|c| (c.step.last_move.unwrap(), c.num_act, c.q_value))
+                    .map(|c| (c.step.0.unwrap(), c.num_act, c.q_value))
                     .collect();
 
 

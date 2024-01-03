@@ -1,4 +1,4 @@
-use crate::chess::{Board, BoardHistory, BoardState, Color};
+use crate::chess::{BoardHistory, BoardState, Color, Move};
 use crate::mcts::Node;
 use ndarray::Array3;
 use numpy::array::{PyArray1, PyArray3};
@@ -39,7 +39,7 @@ pub struct Chess<'a> {
 
 #[cached(
     type = "SizedCache<(String, bool, u64), (Vec<f32>, f32)>",
-    create = "{ SizedCache::with_size(500) }",
+    create = "{ SizedCache::with_size(5000) }",
     convert = r#"{
         let mut hasher = DefaultHasher::new();
         boards.hash(&mut hasher);
@@ -54,7 +54,7 @@ fn call_py_model(
     boards: Array3<u32>,
     meta: Array3<u32>,
     rotate: bool,
-    steps: &Vec<Board>,
+    steps: &Vec<Move>,
 ) -> (Vec<f32>, f32) {
     Python::with_gil(|py| {
         let encoded_boards = PyArray3::from_array(py, &boards);
@@ -98,8 +98,7 @@ ret_score = ret_score.detach().cpu().item()
 
         let encoded_moves: Vec<i32> = steps
             .iter()
-            .map(|b| {
-                let m = b.last_move.unwrap();
+            .map(|m| {
                 if rotate {
                     m.rotate().encode()
                 } else {
@@ -117,73 +116,94 @@ ret_score = ret_score.detach().cpu().item()
     })
 }
 
+// #[cached(
+//     type = "SizedCache<(u64), (Vec<Board>, Vec<f32>, f32)>",
+//     create = "{ SizedCache::with_size(50000) }",
+//     convert = r#"{
+//         let mut hasher = DefaultHasher::new();
+//         let ptr = node as *const Node<Board>;
+//         ptr.hash(&mut hasher);
+//         hasher.finish()
+//     }"#
+// )]
+fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
+    let current_board = state.to_board();
+    let legal_moves = state.legal_moves();
+
+    if legal_moves.is_empty() {
+        let outcome = match state.outcome().unwrap().winner {
+            None => 0.0,
+            Some(Color::White) => 1.0,
+            Some(Color::Black) => -1.0,
+        };
+        return (Vec::new(), Vec::new(), outcome);
+    }
+
+    let mut history = BoardHistory::new(LOOKBACK);
+    let mut dup_state = state.dup();
+
+    let mut cur = NonNull::from(node);
+    for _ in 0..LOOKBACK {
+        let n = unsafe { cur.as_ref() };
+        history.push(&dup_state.to_board());
+        match n.parent {
+            None => break,
+            Some(parent) => {
+                let m = dup_state.prev();
+                assert!(m == n.step.0, "sanity check on the last move failed");
+                cur = parent;
+            },
+        }
+    }
+
+    let rotate = node.step.1 == Color::Black;
+    let encoded_boards = history.view(rotate);
+    let encoded_meta = current_board.encode_meta();
+
+    let (moves_distr, score) = call_py_model(
+        &chess.model,
+        chess.device,
+        encoded_boards,
+        encoded_meta,
+        rotate,
+        &legal_moves,
+    );
+
+    let moves_distr: Vec<f32> = if argmax {
+        let i: usize = moves_distr
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0;
+        let mut moves_distr = vec![0.; moves_distr.len()];
+        moves_distr[i] = 1.;
+        moves_distr
+    } else {
+        let sum = moves_distr.iter().sum::<f32>() + 1e-5;
+
+        if !sum.is_finite() {
+            println!("Warning: {:?}", moves_distr);
+        }
+
+        moves_distr.iter().map(|x| x / sum).collect()
+    };
+
+    let next_steps = legal_moves.into_iter().map(|m| (Some(m), !node.step.1)).collect();
+    return (next_steps, moves_distr, score);
+}
+
 impl Game<BoardState> for Chess<'_> {
     fn predict(
         &self,
-        node: &Node<Board>,
+        node: &Node<<BoardState as State>::Step>,
         state: &BoardState,
         argmax: bool,
-    ) -> (Vec<Board>, Vec<f32>, f32) {
-        let legal_moves = state.legal_moves();
-
-        if legal_moves.is_empty() {
-            let outcome = match state.outcome().unwrap().winner {
-                None => 0.0,
-                Some(Color::White) => 1.0,
-                Some(Color::Black) => -1.0,
-            };
-            return (Vec::new(), Vec::new(), outcome);
-        }
-
-        let mut history = BoardHistory::new(LOOKBACK);
-
-        let mut cur = NonNull::from(node);
-        for _ in 0..LOOKBACK {
-            let n = unsafe { cur.as_ref() };
-            history.push(&n.step);
-            match n.parent {
-                None => break,
-                Some(parent) => cur = parent,
-            }
-        }
-
-        let rotate = node.step.turn == Color::Black;
-        let encoded_boards = history.view(rotate);
-        let encoded_meta = node.step.encode_meta();
-
-        let (moves_distr, score) = call_py_model(
-            &self.model,
-            self.device,
-            encoded_boards,
-            encoded_meta,
-            rotate,
-            &legal_moves,
-        );
-
-        let moves_distr: Vec<f32> = if argmax {
-            let i: usize = moves_distr
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                .unwrap()
-                .0;
-            let mut moves_distr = vec![0.; moves_distr.len()];
-            moves_distr[i] = 1.;
-            moves_distr
-        } else {
-            let sum = moves_distr.iter().sum::<f32>() + 1e-5;
-
-            if !sum.is_finite() {
-                println!("Warning: {:?}", moves_distr);
-            }
-
-            moves_distr.iter().map(|x| x / sum).collect()
-        };
-
-        return (legal_moves, moves_distr, score);
+    ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
+        _chess_predict(self, node, state, argmax)
     }
 
-    fn reverse_q(&self, node: &Node<Board>) -> bool {
-        node.step.turn == Color::Black
+    fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
+        node.step.1 == Color::Black
     }
 }

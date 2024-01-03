@@ -585,6 +585,14 @@ impl BoardState {
         .unwrap()
     }
 
+    pub fn prev(&mut self) -> Option<Move> {
+        Python::with_gil(|py| {
+            self.python_object
+                .call_method0(py, intern!(py, "pop"))
+                .and_then(|o| o.extract(py))
+        }).ok()
+    }
+
     pub fn next(&mut self, mov: &Move) {
         Python::with_gil(|py| {
             self.python_object
@@ -593,36 +601,16 @@ impl BoardState {
         .unwrap();
     }
 
-    pub fn legal_moves(&self) -> Vec<Board> {
+    pub fn legal_moves(&self) -> Vec<Move> {
         Python::with_gil(|py| {
-            let moves = self.python_object.getattr(py, intern!(py, "legal_moves"))?;
-            let locals = [("board", &self.python_object), ("moves", &moves)].into_py_dict(py);
-
-            let code = r#"
-def _act(m):
-    b = board.copy(stack=False)
-    b.push(m)
-    return b
-
-ret = list(map(_act, moves))
-"#;
-            py.run(code, Some(locals), None)?;
-            let boards = locals
-                .get_item("ret")?
-                .unwrap()
-                .downcast::<PyList>()
-                .unwrap()
-                .iter()
-                .map(|o| o.extract().unwrap())
-                .collect();
-            Ok::<Vec<Board>, PyErr>(boards)
+            let locals = [("board", &self.python_object)].into_py_dict(py);
+            py.eval("list(board.legal_moves)", None, Some(&locals)).unwrap().extract().unwrap()
         })
-        .unwrap()
     }
 }
 
 impl game::State for BoardState {
-    type Step = Board;
+    type Step = (Option<Move>, Color);
 
     fn dup(&self) -> Self {
         Python::with_gil(|py| {
@@ -635,9 +623,8 @@ impl game::State for BoardState {
         })
     }
 
-    fn advance(&mut self, board: &Board) {
-        let mov: Move = board.last_move.unwrap();
-        self.next(&mov);
+    fn advance(&mut self, step: &(Option<Move>, Color)) {
+        self.next(&step.0.unwrap());
     }
 }
 
