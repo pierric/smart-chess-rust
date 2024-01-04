@@ -4,8 +4,8 @@ N=${N:-10};
 for run_idx in `seq $N`; do
   if [ -f "trace${run_idx}.json" ]; then
     n=$(printf %02d $run_idx)
-    winner=$(cat "trace${run_idx}.json" | jq -r ".outcome.winner")
+    winner=$(cat "trace${run_idx}.json" | jq -c ".outcome")
     num_steps=$(cat "trace${run_idx}.json" | jq -r ".steps | length")
-    echo "$n, winner: $winner, num-steps: $num_steps"
+    echo "$n, $winner, num-steps: $num_steps"
   fi
 done

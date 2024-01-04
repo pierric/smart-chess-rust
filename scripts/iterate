@@ -9,8 +9,8 @@ join() {
 
 clean() {
     for f in `ls trace*.json`; do
-        winner=$(cat "$f" | jq -r ".outcome.winner")
-        if [ "$winner" = "null" ]; then
+        outcome=$(cat "$f" | jq -r ".outcome")
+        if [ "$outcome" = "null" ]; then
             echo "remove $f because of no result"
             rm $f
         fi
@@ -45,14 +45,14 @@ python $ROOT/scripts/train.py $trace_args -n $TRAIN_EPOCHS -c $ckpt_file
 popd
 
 ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
-infer_args="-d cuda -n 80 --temperature 1 --cpuct 1"
-scripts/run_batch $infer_args -r 3 --checkpoint $ckpt_file
+infer_args="-d cuda -n 120 --temperature 0.4 --cpuct 2.5"
+scripts/run_batch $infer_args -r 5 --checkpoint $ckpt_file
 
 set +ex
 clean
 ls trace*.json
 ret=$?
 if [ $ret -gt 0 ]; then
-    scripts/run_batch $infer_args -r 6 --checkpoint $ckpt_file
+    scripts/run_batch $infer_args -r 8 --checkpoint $ckpt_file
     clean
 fi

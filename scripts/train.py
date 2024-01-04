@@ -111,7 +111,7 @@ def main():
     config = dict(
         epochs = args.epochs,
         steps_per_epoch = len(train_loader),
-        lr = 1e-4,
+        lr = 2e-4,
         trace_files = args.trace_file,
         last_ckpt = args.last_ckpt,
     )

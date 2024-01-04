@@ -23,6 +23,7 @@ trace*.json
 bug-runs/
 bug-runs2/
 debug-traces/
+archive/
 *.svg
 *.out
 *.data
