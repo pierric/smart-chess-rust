@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 
 import numpy as np
 import chess
@@ -72,7 +73,7 @@ class ChessLightningModule(L.LightningModule):
         return loss1 + loss2
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"])
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"], weight_decay=1e-4)
         return optimizer
         #from torch.optim.lr_scheduler import OneCycleLR
         #scheduler = OneCycleLR(
@@ -96,6 +97,7 @@ def main():
     parser.add_argument("-t", "--trace-file", action="append")
     parser.add_argument("-n", "--epochs", type=int, default=4)
     parser.add_argument("-c", "--last-ckpt", type=str)
+    parser.add_argument("-l", "--lr", type=float, default=1e-4)
     args = parser.parse_args()
 
     if not args.trace_file:
@@ -111,15 +113,16 @@ def main():
     config = dict(
         epochs = args.epochs,
         steps_per_epoch = len(train_loader),
-        lr = 2e-4,
+        lr = args.lr,
         trace_files = args.trace_file,
         last_ckpt = args.last_ckpt,
     )
 
     module = ChessLightningModule(config)
-    trainer = L.Trainer(logger=logger, callbacks=[lr_monitor], max_epochs=config["epochs"], log_every_n_steps=20)
+    trainer = L.Trainer(enable_checkpointing=False, logger=logger, callbacks=[lr_monitor], max_epochs=config["epochs"], log_every_n_steps=20)
     trainer.fit(model=module, train_dataloaders=train_loader)
-    # trainer.save_checkpoint("last.ckpt")
+
+    torch.save(module.model._orig_mod.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
 
 
 if __name__ == "__main__":

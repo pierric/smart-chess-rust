@@ -76,7 +76,7 @@ def load_model(device=None, checkpoint=None, inference=True):
 
     if checkpoint:
         print("..loading checkpoint: ", checkpoint)
-        model.load_state_dict(torch.load(checkpoint), strict=False)
+        model.load_state_dict(torch.load(checkpoint), strict=True)
 
     if inference:
         model.eval()
