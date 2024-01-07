@@ -4,12 +4,19 @@ export PYTHONPATH="$ROOT/py"
 ARGS=$@
 N=10
 
-for run_idx in `seq $N`; do
-    echo "Run index" $run_idx ".. $ARGS"
-    cargo r --bin smartchess --release -- -t "trace${run_idx}.json" $ARGS
-done
+task() {
+    JOB_ID=$1
+    shift
+    echo "Run index" ${JOB_ID} ".. $@"
+    cargo r --bin smartchess --release -- -t "trace${JOB_ID}.json" $@ > "log_${JOB_ID}"
+}
+
+export -f task
+parallel -j2 task {#} ${ARGS} ::: $(seq 1 $N)
 
 for run_idx in `seq $N`; do
-    echo -n "$run_idx: "
-    cat "trace${run_idx}.json" | jq -r ".outcome.winner"
+    n=$(printf %02d $run_idx)
+    winner=$(cat "trace${run_idx}.json" | jq -c ".outcome")
+    num_steps=$(cat "trace${run_idx}.json" | jq -r ".steps | length")
+    echo "$n, $winner, num-steps: $num_steps"
 done
