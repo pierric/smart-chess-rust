@@ -10,7 +10,16 @@ pub mod queenmoves;
 pub mod underpromotions;
 
 #[pyfunction]
-fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
+fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
+    Ok(if turn == chess::Color::Black {
+        mov.rotate().encode()
+    } else {
+        mov.encode()
+    })
+}
+
+#[pyfunction]
+fn encode_steps(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
     let mut history = chess::BoardHistory::new(game::LOOKBACK);
     let mut board_state = chess::BoardState::new();
 
@@ -69,6 +78,7 @@ fn encode(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObje
 /// import the module.
 #[pymodule]
 fn libencoder(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(encode, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_move, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_steps, m)?)?;
     Ok(())
 }
