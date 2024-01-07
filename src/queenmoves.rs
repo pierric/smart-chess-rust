@@ -37,9 +37,9 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
         let code = r#"
 direction = np.sign([delta0, delta1])
 direction_table = [
-    [4,4,3],
-    [5,8,2],
-    [6,0,1],
+    [5,4,3],
+    [6,8,2],
+    [7,0,1],
 ]
 direction_idx = np.array(direction_table, np.int32)[tuple(direction+1)]
 move_type = np.ravel_multi_index(
