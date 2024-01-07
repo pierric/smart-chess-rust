@@ -39,13 +39,13 @@ set -ex
 pushd runs/$ITER
 trace_files=( $(ls trace*.json) )
 trace_args=$(join " -t " trace_files)
-ckpt_file=$(find ../$CURR/tb_logs -name "*.ckpt" | tail -n 1)
+ckpt_file=$(find ../$CURR/tb_logs -name "*.ckpt" | sort -V | tail -n 1)
 TRAIN_EPOCHS=${TRAIN_EPOCHS:-4}
 python $ROOT/scripts/train.py $trace_args -n $TRAIN_EPOCHS -c $ckpt_file
 popd
 
 ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
-infer_args="-d cuda -n 120 --temperature 0.4 --cpuct 2.5"
+infer_args="-d cuda -n 120 --temperature 0.5 --cpuct 5"
 scripts/run_batch $infer_args -r 5 --checkpoint $ckpt_file
 
 set +ex
@@ -53,6 +53,6 @@ clean
 ls trace*.json
 ret=$?
 if [ $ret -gt 0 ]; then
-    scripts/run_batch $infer_args -r 8 --checkpoint $ckpt_file
+    scripts/run_batch $infer_args -r 10 --checkpoint $ckpt_file
     clean
 fi

@@ -174,7 +174,7 @@ fn main() {
                 let temperature = if i < 10 {1.0} else {args.temperature};
                 let rollout = i32::max(150, (state.legal_moves().len() as f32 * args.rollout_factor) as i32);
 
-                println!("Rollout {:?} Temp {:?} Turn {}", rollout, temperature, cursor.current().step.1);
+                println!("Rollout {} Temp {} Cpuct {} Turn {}", rollout, temperature, args.cpuct, cursor.current().step.1);
                 mcts::mcts(&chess, cursor.current(), &state, rollout, Some(args.cpuct));
 
                 let node = cursor.current();
