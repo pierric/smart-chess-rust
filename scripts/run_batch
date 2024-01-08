@@ -2,13 +2,13 @@ set -eu
 export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
 export PYTHONPATH="$ROOT/py"
 ARGS=$@
-N=10
+N=15
 
 task() {
     JOB_ID=$1
     shift
     echo "Run index" ${JOB_ID} ".. $@"
-    cargo r --bin smartchess --release -- -t "trace${JOB_ID}.json" $@ > "log_${JOB_ID}"
+    cargo r --bin smartchess --release -- -t "trace${JOB_ID}.json" $@ > "/tmp/chess_log_${JOB_ID}"
 }
 
 export -f task

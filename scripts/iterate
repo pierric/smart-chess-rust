@@ -7,16 +7,6 @@ join() {
     echo "${_string_to_print/%"$1"}"
 }
 
-clean() {
-    for f in `ls trace*.json`; do
-        outcome=$(cat "$f" | jq -r ".outcome")
-        if [ "$outcome" = "null" ]; then
-            echo "remove $f because of no result"
-            rm $f
-        fi
-    done
-}
-
 export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
 export PYTHONPATH=$ROOT/py:$ROOT/target/release
 
@@ -49,10 +39,10 @@ infer_args="-d cuda -n 120 --temperature 0.5 --cpuct 5"
 scripts/run_batch $infer_args -r 5 --checkpoint $ckpt_file
 
 set +ex
-clean
+scripts/clean
 ls trace*.json
 ret=$?
 if [ $ret -gt 0 ]; then
     scripts/run_batch $infer_args -r 10 --checkpoint $ckpt_file
-    clean
+    scripts/clean
 fi

@@ -38,7 +38,7 @@ class ChessDataset(Dataset):
             (chess.Move.from_uci(step[0]), [c[1] for c in step[2]])
             for step in trace["steps"]
         ]
-        self.steps = libencoder.encode(steps)
+        self.steps = libencoder.encode_steps(steps)
 
 
     def __len__(self):
@@ -94,7 +94,7 @@ class ChessLightningModule(L.LightningModule):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--trace-file", action="append")
+    parser.add_argument("-t", "--trace-file", nargs="*", action="extend")
     parser.add_argument("-n", "--epochs", type=int, default=4)
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
@@ -119,7 +119,13 @@ def main():
     )
 
     module = ChessLightningModule(config)
-    trainer = L.Trainer(enable_checkpointing=False, logger=logger, callbacks=[lr_monitor], max_epochs=config["epochs"], log_every_n_steps=20)
+    trainer = L.Trainer(
+        enable_checkpointing=False,
+        logger=logger,
+        callbacks=[lr_monitor],
+        max_epochs=config["epochs"],
+        log_every_n_steps=10
+    )
     trainer.fit(model=module, train_dataloaders=train_loader)
 
     torch.save(module.model._orig_mod.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))

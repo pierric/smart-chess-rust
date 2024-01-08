@@ -1,6 +1,6 @@
 #!/bin/bash
 
-N=${N:-10};
+N=${N:-15};
 for run_idx in `seq $N`; do
   if [ -f "trace${run_idx}.json" ]; then
     n=$(printf %02d $run_idx)
