@@ -1,3 +1,4 @@
+use std::fs::create_dir;
 use std::ptr::NonNull;
 use pyo3::prelude::*;
 use clap::Parser;
@@ -37,11 +38,15 @@ struct Args {
 
     #[arg(long, default_value_t = 0.0)]
     cpuct: f32,
+
+    #[arg(short, long, default_value = "01.json")]
+    output: String,
 }
 
 fn main() {
     unsafe { backtrace_on_stack_overflow::enable() };
     let args = Args::parse();
+    let _ = create_dir("replay");
 
     let nn = Python::with_gil(|py| {
         let kwargs = pyo3::types::PyDict::new(py);
@@ -128,5 +133,5 @@ fn main() {
     let outcome = state.outcome().unwrap();
     println!("{:?}", outcome);
     trace.set_outcome(outcome);
-    trace.save("replay.json");
+    trace.save(&(String::from("replay/") + &args.output));
 }

@@ -50,6 +50,73 @@ fn step(
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
+fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
+    use std::io::BufReader;
+    use std::ptr::NonNull;
+    let mut file = File::open(filename).unwrap();
+    let reader = BufReader::new(file);
+    let trace: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(reader).unwrap();
+    let steps = trace["steps"].as_array().unwrap();
+
+    let mut state = chess::BoardState::new();
+    let mut root = mcts::Node {
+        step: (None, chess::Color::White),
+        q_value: 0.,
+        num_act: 0,
+        parent: None,
+        children: Vec::new(),
+    };
+    let mut cursor = root.as_cursor_mut();
+    for idx in 0..(target_step-1) {
+        let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
+        let mov = chess::Move::from_uci(mov_uci);
+        let legal_moves = state.legal_moves();
+        let choice = legal_moves.iter().position(|m| *m == mov).unwrap();
+        let current = cursor.current();
+        let turn = current.step.1;
+        let parent = NonNull::new(current as *mut _);
+        current.children.extend(
+            legal_moves
+            .into_iter()
+            .map(|m| {
+                Box::new(mcts::Node {
+                    step: (Some(m), !turn),
+                    q_value: 0.,
+                    num_act: 0,
+                    parent: parent,
+                    children: Vec::new(),
+                })
+            }));
+        cursor.move_children(choice);
+        game::State::advance(&mut state, &cursor.current().step);
+    }
+
+    let moves = steps[target_step].as_array().unwrap()[2].as_array().unwrap();
+    let current = cursor.current();
+    let parent = NonNull::new(current as *mut _);
+    current.children.extend(
+        moves
+        .into_iter()
+        .map(|m| {
+            let spec = m.as_array().unwrap();
+            let uci = spec[0].as_str().unwrap();
+            let mov = chess::Move::from_uci(uci);
+            let num = spec[1].as_i64().unwrap() as i32;
+            let turn = if target_step % 2 == 0 {chess::Color::White} else {chess::Color::Black};
+            Box::new(mcts::Node {
+                step: (Some(mov), turn),
+                q_value: 0.,
+                num_act: num,
+                parent: parent,
+                children: Vec::new(),
+            })
+        }));    
+
+    let mov = step(&mut cursor, &mut state, 0.0);
+    println!("Move {:?}", mov.map(|m| m.uci()));
+}
+
+#[allow(unused_variables, dead_code, unused_mut)]
 fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
     use std::io::BufReader;
     use std::ptr::NonNull;
@@ -102,7 +169,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
     let (steps, prior, outcome) = chess.predict(cursor.current(), &state, false);
     println!("{:?} {:?}", outcome, prior);
 
-    mcts::mcts(&chess, cursor.current(), &state, rollout, Some(0.05));
+    mcts::mcts(&chess, cursor.current(), &state, rollout, Some(2.0));
     let children_num_act: Vec<(String, i32, f32)> =
        cursor.current().children.iter().map(|n| (n.step.0.unwrap().uci(), n.num_act, n.q_value)).collect();
     println!("{:?}", children_num_act);
@@ -157,6 +224,7 @@ fn main() {
             };
 
             // debug_trace(chess, "debug-traces/trace4.json", 5);
+            // debug_step(chess, "runs/86/trace8.json", 9);
             // return;
 
             let mut state = chess::BoardState::new();
@@ -171,8 +239,8 @@ fn main() {
             let mut outcome = None;
 
             for i in 0..args.num_steps {
-                let temperature = if i < 10 {1.0} else {args.temperature};
-                let rollout = i32::max(150, (state.legal_moves().len() as f32 * args.rollout_factor) as i32);
+                let temperature = if i < 8 {1.0} else {args.temperature};
+                let rollout = i32::max(200, (state.legal_moves().len() as f32 * args.rollout_factor) as i32);
 
                 println!("Rollout {} Temp {} Cpuct {} Turn {}", rollout, temperature, args.cpuct, cursor.current().step.1);
                 mcts::mcts(&chess, cursor.current(), &state, rollout, Some(args.cpuct));

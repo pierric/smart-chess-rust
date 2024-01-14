@@ -24,6 +24,7 @@ bug-runs/
 bug-runs2/
 debug-traces/
 archive/
+replay/
 *.svg
 *.out
 *.data

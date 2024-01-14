@@ -20,4 +20,8 @@ export -f task
 
 LAST=$(ls runs/ | sort -V -r | head -n 1)
 mkdir -p "replay/$LAST"
-parallel -j2 task {#} ${LAST} -d cuda --rollout=300 --temperature 0.0 --cpuct 2 ::: $(seq 1 10)
+parallel -j4 task {#} ${LAST} -d cuda --rollout=300 --temperature 0.0 --cpuct 2 ::: $(seq 1 10)
+
+pushd replay/$LAST
+$ROOT/scripts/show-result
+popd
