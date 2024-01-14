@@ -108,7 +108,7 @@ def main():
     lr_monitor = LearningRateMonitor(logging_interval='step')
 
     dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
-    train_loader = DataLoader(dss, num_workers=4, batch_size=2, shuffle=True)
+    train_loader = DataLoader(dss, num_workers=4, batch_size=4, shuffle=True, drop_last=True)
 
     config = dict(
         epochs = args.epochs,
@@ -124,7 +124,7 @@ def main():
         logger=logger,
         callbacks=[lr_monitor],
         max_epochs=config["epochs"],
-        log_every_n_steps=10
+        log_every_n_steps=20
     )
     trainer.fit(model=module, train_dataloaders=train_loader)
 

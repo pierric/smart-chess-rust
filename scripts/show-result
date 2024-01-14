@@ -1,0 +1,9 @@
+#!/bin/bash
+
+for trace in `ls *.json`; do
+  if [ -f $trace ]; then
+    winner=$(cat $trace | jq -c ".outcome")
+    num_steps=$(cat $trace | jq -r ".steps | length")
+    echo "$trace, $winner, num-steps: $num_steps"
+  fi
+done

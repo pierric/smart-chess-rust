@@ -1,0 +1,23 @@
+#! /bin/bash
+
+export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
+export PYTHONPATH=$ROOT/py
+
+
+task() {
+    JOB_ID=$1
+    CHECKPOINT=$2
+    shift 2
+    echo "Run index ${JOB_ID} using checkpoint ${CHECKPOINT} ARGS $@"
+
+    cargo r --bin play -- \
+        --checkpoint runs/${CHECKPOINT}/tb_logs/chess/version_0/last.ckpt\
+        -o ${CHECKPOINT}/${JOB_ID}.json\
+        $@
+}
+
+export -f task
+
+LAST=$(ls runs/ | sort -V -r | head -n 1)
+mkdir -p "replay/$LAST"
+parallel -j2 task {#} ${LAST} -d cuda --rollout=300 --temperature 0.0 --cpuct 2 ::: $(seq 1 10)
