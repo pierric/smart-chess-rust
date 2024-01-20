@@ -78,6 +78,7 @@ fn select<'a, G, S>(
     node: &'a mut Node<S::Step>,
     state: &mut S,
     cpuct: f32,
+    noise: &Vec<f64>,
 ) -> (RecRef<'a, Node<S::Step>>, Vec<S::Step>, f32)
 where
     G: Game<S>,
@@ -105,10 +106,8 @@ where
             0
         } else {
             let prior_rand: Vec<f32> = if !root {prior} else {
-                let dir = Dirichlet::<f64>::new_with_size(0.03, prior.len()).unwrap();
-                let dir_samples = dir.sample(&mut thread_rng());
                 prior.iter()
-                    .zip(dir_samples.iter())
+                    .zip(noise.iter())
                     .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
                     .collect()
             };
@@ -153,9 +152,13 @@ pub fn mcts<G, S>(
     let default_cpuct: f32 = 1.2;
     let cpuct = cpuct.unwrap_or(default_cpuct);
 
+    let num_legal_moves = state.legal_moves().len();
+    let dirichlet = Dirichlet::<f64>::new_with_size(0.03, num_legal_moves).unwrap();
+    let noise = dirichlet.sample(&mut thread_rng());
+
     for _ in 0..n_rollout {
         let mut local_state = state.dup();
-        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct);
+        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct, &noise);
 
         // path points at a leaf node, either game is done, or it isn't finished
         path.children = steps
