@@ -1,7 +1,6 @@
 use clap::Parser;
 use pyo3::prelude::*;
-use std::fs::File;
-use rand::thread_rng;
+use rand::{thread_rng, Rng};
 use rand::distributions::WeightedIndex;
 use rand::distributions::Distribution;
 
@@ -27,19 +26,20 @@ fn step(
     state: &mut chess::BoardState,
     temp: f32,
 ) -> Option<chess::Move> {
-    let num_act_vec = cursor.current().children.iter().map(|a| a.num_act);
+    let num_act_vec: Vec<_> = cursor.current().children.iter().map(|a| a.num_act).collect();
 
     if num_act_vec.len() == 0 {
         return None
     }
 
     let choice: usize = if temp == 0.0 {
-        num_act_vec.enumerate().max_by(|a, b| {
-            a.1.cmp(&b.1)
-        }).unwrap().0
+        let max = num_act_vec.iter().max().unwrap();
+        let indices: Vec<usize> = num_act_vec.iter().enumerate().filter(|a| a.1 == max).map(|a| a.0).collect();
+        let n: usize = thread_rng().gen_range(0..indices.len());
+        indices[n]
     } else {
         let power = 1.0 / temp;
-        let weights = WeightedIndex::new(num_act_vec.map(|n| (n as f32).powf(power))).unwrap();
+        let weights = WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
         weights.sample(&mut thread_rng())
     };
 
@@ -48,141 +48,17 @@ fn step(
     game::State::advance(state, step);
     step.0
 }
-
-#[allow(unused_variables, dead_code, unused_mut)]
-fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
-    use std::io::BufReader;
-    use std::ptr::NonNull;
-    let mut file = File::open(filename).unwrap();
-    let reader = BufReader::new(file);
-    let trace: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(reader).unwrap();
-    let steps = trace["steps"].as_array().unwrap();
-
-    let mut state = chess::BoardState::new();
-    let mut root = mcts::Node {
-        step: (None, chess::Color::White),
-        q_value: 0.,
-        num_act: 0,
-        parent: None,
-        children: Vec::new(),
-    };
-    let mut cursor = root.as_cursor_mut();
-    for idx in 0..(target_step-1) {
-        let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
-        let mov = chess::Move::from_uci(mov_uci);
-        let legal_moves = state.legal_moves();
-        let choice = legal_moves.iter().position(|m| *m == mov).unwrap();
-        let current = cursor.current();
-        let turn = current.step.1;
-        let parent = NonNull::new(current as *mut _);
-        current.children.extend(
-            legal_moves
-            .into_iter()
-            .map(|m| {
-                Box::new(mcts::Node {
-                    step: (Some(m), !turn),
-                    q_value: 0.,
-                    num_act: 0,
-                    parent: parent,
-                    children: Vec::new(),
-                })
-            }));
-        cursor.move_children(choice);
-        game::State::advance(&mut state, &cursor.current().step);
-    }
-
-    let moves = steps[target_step].as_array().unwrap()[2].as_array().unwrap();
-    let current = cursor.current();
-    let parent = NonNull::new(current as *mut _);
-    current.children.extend(
-        moves
-        .into_iter()
-        .map(|m| {
-            let spec = m.as_array().unwrap();
-            let uci = spec[0].as_str().unwrap();
-            let mov = chess::Move::from_uci(uci);
-            let num = spec[1].as_i64().unwrap() as i32;
-            let turn = if target_step % 2 == 0 {chess::Color::White} else {chess::Color::Black};
-            Box::new(mcts::Node {
-                step: (Some(mov), turn),
-                q_value: 0.,
-                num_act: num,
-                parent: parent,
-                children: Vec::new(),
-            })
-        }));    
-
-    let mov = step(&mut cursor, &mut state, 0.0);
-    println!("Move {:?}", mov.map(|m| m.uci()));
-}
-
-#[allow(unused_variables, dead_code, unused_mut)]
-fn debug_trace(chess: game::Chess, filename: &str, target_step: usize) {
-    use std::io::BufReader;
-    use std::ptr::NonNull;
-    use crate::game::Game;
-    let mut file = File::open(filename).unwrap();
-    let reader = BufReader::new(file);
-    let trace: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(reader).unwrap();
-    let steps = trace["steps"].as_array().unwrap();
-
-    let mut state = chess::BoardState::new();
-    let mut root = mcts::Node {
-        step: (None, chess::Color::White),
-        q_value: 0.,
-        num_act: 0,
-        parent: None,
-        children: Vec::new(),
-    };
-    let mut cursor = root.as_cursor_mut();
-    for idx in 0..target_step {
-        let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
-        let mov = chess::Move::from_uci(mov_uci);
-        let legal_moves = state.legal_moves();
-        let choice = legal_moves.iter().position(|m| *m == mov).unwrap();
-        let current = cursor.current();
-        let turn = current.step.1;
-        let parent = NonNull::new(current as *mut _);
-        current.children.extend(
-            legal_moves
-            .into_iter()
-            .map(|m| {
-                Box::new(mcts::Node {
-                    step: (Some(m), !turn),
-                    q_value: 0.,
-                    num_act: 0,
-                    parent: parent,
-                    children: Vec::new(),
-                })
-            }));
-        cursor.move_children(choice);
-        game::State::advance(&mut state, &cursor.current().step);
-    }
-
-    //let rollout = (state.legal_moves().len() as f32 * 6.0) as i32;
-    let rollout = 160;
-    println!("rollout: {}", rollout);
-
-    println!("{:?}", cursor.current().step.1);
-    println!("{}", state);
-
-    let (steps, prior, outcome) = chess.predict(cursor.current(), &state, false);
-    println!("{:?} {:?}", outcome, prior);
-
-    mcts::mcts(&chess, cursor.current(), &state, rollout, Some(2.0));
-    let children_num_act: Vec<(String, i32, f32)> =
-       cursor.current().children.iter().map(|n| (n.step.0.unwrap().uci(), n.num_act, n.q_value)).collect();
-    println!("{:?}", children_num_act);
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
     device: String,
 
-    #[arg(short, long, default_value_t = 2.0)]
-    rollout_factor: f32,
+    #[arg(short, long, default_missing_value = None)]
+    rollout_factor: Option<f32>,
+
+    #[arg(long, default_missing_value = None)]
+    rollout_num: Option<i32>,
 
     #[arg(short, long, default_value_t = 10)]
     num_steps: i32,
@@ -201,8 +77,9 @@ struct Args {
 }
 
 fn main() {
-    unsafe { backtrace_on_stack_overflow::enable() };
     let args = Args::parse();
+
+    assert!(args.rollout_factor.is_none() || args.rollout_num.is_none());
 
     let r = Python::with_gil(|py| {
         let kwargs = pyo3::types::PyDict::new(py);
@@ -223,10 +100,6 @@ fn main() {
                 device: &args.device,
             };
 
-            // debug_trace(chess, "debug-traces/trace4.json", 5);
-            // debug_step(chess, "runs/86/trace8.json", 9);
-            // return;
-
             let mut state = chess::BoardState::new();
             let mut root = mcts::Node {
                 step: (None, chess::Color::White),
@@ -240,8 +113,13 @@ fn main() {
 
             for i in 0..args.num_steps {
                 let temperature = if i < 8 {1.0} else {args.temperature};
-                let rollout = i32::max(200, (state.legal_moves().len() as f32 * args.rollout_factor) as i32);
 
+                let rollout = match (args.rollout_factor, args.rollout_num) {
+                    (Some(v), None) => i32::max(200, (state.legal_moves().len() as f32 * v) as i32),
+                    (None, Some(v)) => v,
+                    (None, None) => 300,
+                    (Some(_), Some(_)) => panic!("both --rollout_factor and --rollout_num are specified."),
+                };
                 println!("Rollout {} Temp {} Cpuct {} Turn {}", rollout, temperature, args.cpuct, cursor.current().step.1);
                 mcts::mcts(&chess, cursor.current(), &state, rollout, Some(args.cpuct));
 

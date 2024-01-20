@@ -17,7 +17,7 @@ pub enum EncodeError {
     NotPromotion,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
@@ -358,6 +358,12 @@ impl fmt::Display for Square {
 }
 
 impl fmt::Display for Move {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Move[{}]", self.uci())
+    }
+}
+
+impl fmt::Debug for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Move[{}]", self.uci())
     }
