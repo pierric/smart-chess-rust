@@ -1,8 +1,5 @@
 use clap::Parser;
 use pyo3::prelude::*;
-use rand::{thread_rng, Rng};
-use rand::distributions::WeightedIndex;
-use rand::distributions::Distribution;
 
 mod chess;
 mod game;
@@ -21,33 +18,6 @@ fn get_python_path() -> Py<PyAny> {
     });
 }
 
-fn step(
-    cursor: &mut mcts::CursorMut<<chess::BoardState as game::State>::Step>,
-    state: &mut chess::BoardState,
-    temp: f32,
-) -> Option<chess::Move> {
-    let num_act_vec: Vec<_> = cursor.current().children.iter().map(|a| a.num_act).collect();
-
-    if num_act_vec.len() == 0 {
-        return None
-    }
-
-    let choice: usize = if temp == 0.0 {
-        let max = num_act_vec.iter().max().unwrap();
-        let indices: Vec<usize> = num_act_vec.iter().enumerate().filter(|a| a.1 == max).map(|a| a.0).collect();
-        let n: usize = thread_rng().gen_range(0..indices.len());
-        indices[n]
-    } else {
-        let power = 1.0 / temp;
-        let weights = WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
-        weights.sample(&mut thread_rng())
-    };
-
-    cursor.move_children(choice);
-    let step = &cursor.current().step;
-    game::State::advance(state, step);
-    step.0
-}
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -132,13 +102,13 @@ fn main() {
                     .collect();
 
 
-                match step(&mut cursor, &mut state, temperature) {
+                match mcts::step(&mut cursor, &mut state, temperature) {
                     None => {
                         outcome = state.outcome();
                         break;
                     }
-                    mov => {
-                        trace.push(mov, q_value, num_act_children);
+                    Some(step) => {
+                        trace.push(step.0, q_value, num_act_children);
                         println!("Step {}\n{}", i, state);
                     }
                 }

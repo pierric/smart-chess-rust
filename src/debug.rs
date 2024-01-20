@@ -1,8 +1,5 @@
 use clap::Parser;
 use std::fs::File;
-use rand::{thread_rng, Rng};
-use rand::distributions::WeightedIndex;
-use rand::distributions::Distribution;
 use pyo3::prelude::*;
 
 mod mcts;
@@ -12,34 +9,6 @@ mod underpromotions;
 mod queenmoves;
 mod knightmoves;
 mod trace;
-
-fn step<S>(
-    cursor: &mut mcts::CursorMut<S::Step>,
-    state: &mut S,
-    temp: f32,
-) -> Option<S::Step> where S: game::State, S::Step: Copy {
-    let num_act_vec: Vec<_> = cursor.current().children.iter().map(|a| a.num_act).collect();
-
-    if num_act_vec.len() == 0 {
-        return None
-    }
-
-    let choice: usize = if temp == 0.0 {
-        let max = num_act_vec.iter().max().unwrap();
-        let indices: Vec<usize> = num_act_vec.iter().enumerate().filter(|a| a.1 == max).map(|a| a.0).collect();
-        let n: usize = thread_rng().gen_range(0..indices.len());
-        indices[n]
-    } else {
-        let power = 1.0 / temp;
-        let weights = WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
-        weights.sample(&mut thread_rng())
-    };
-
-    cursor.move_children(choice);
-    let step = &cursor.current().step;
-    game::State::advance(state, step);
-    Some(*step)
-}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -123,7 +92,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
             })
         }));    
 
-    let mov = step(&mut cursor, &mut state, 0.0).unwrap().0;
+    let mov = mcts::step(&mut cursor, &mut state, 0.0).unwrap().0;
     println!("Move {:?}", mov.map(|m| m.uci()));
 }
 

@@ -1,10 +1,11 @@
 use crate::game::{Game, State};
-use rand::thread_rng;
+use rand::{thread_rng, Rng};
 use rand_distr::{Dirichlet, Distribution};
 use recursive_reference::*;
 use std::iter::Sum;
 use std::ptr::NonNull;
 use std::ops::Deref;
+use rand::distributions::WeightedIndex;
 
 pub struct Node<T> {
     pub step: T,
@@ -172,6 +173,34 @@ pub fn mcts<G, S>(
 
         backward(path, reward);
     }
+}
+
+pub fn step<S>(
+    cursor: &mut CursorMut<S::Step>,
+    state: &mut S,
+    temp: f32,
+) -> Option<S::Step> where S: State, S::Step: Copy {
+    let num_act_vec: Vec<_> = cursor.current().children.iter().map(|a| a.num_act).collect();
+
+    if num_act_vec.len() == 0 {
+        return None
+    }
+
+    let choice: usize = if temp == 0.0 {
+        let max = num_act_vec.iter().max().unwrap();
+        let indices: Vec<usize> = num_act_vec.iter().enumerate().filter(|a| a.1 == max).map(|a| a.0).collect();
+        let n: usize = thread_rng().gen_range(0..indices.len());
+        indices[n]
+    } else {
+        let power = 1.0 / temp;
+        let weights = WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
+        weights.sample(&mut thread_rng())
+    };
+
+    cursor.move_children(choice);
+    let step = &cursor.current().step;
+    State::advance(state, step);
+    Some(*step)
 }
 
 impl<T> Node<T> {
