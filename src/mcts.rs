@@ -26,15 +26,13 @@ fn uct(
     reverse_q: bool,
     cpuct: f32,
 ) -> f32 {
-    const EPSILON: f32 = 1e-4;
-
     let average_award: f32 =
-        move_q / (move_n_act as f32 + EPSILON) * (if reverse_q { -1. } else { 1. });
+        move_q / (move_n_act as f32 + 1e-4) * (if reverse_q { -1. } else { 1. });
 
-    // plus EPSILON to ensure that exploration factor isn't zero
+    // plus 0.01 to ensure that exploration factor isn't zero
     // in case q and n_act are zero, the choice will fully based on the prior
     let exploration: f32 =
-        (sqrt_total_num_vis + EPSILON) / (1. + move_n_act as f32) * cpuct * prior;
+        (sqrt_total_num_vis + 0.01) / (1. + move_n_act as f32) * cpuct * prior;
     return average_award + exploration;
 }
 
@@ -50,17 +48,28 @@ where
         .map(|p| p.0);
 }
 
-fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32) {
+fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32) where T: std::fmt::Debug {
+    // let mut last: String = String::from("");
+    // use string_builder::Builder;
+    // let mut builder = Builder::default();
+
     loop {
         ptr.q_value += reward;
+
+        // builder.append(format!("{:?} ", ptr.step));
+        // let sz = RecRef::size(&ptr);
+        // if sz == 2 {
+        //     last = format!("{:?}", ptr.step);
+        // }
+
         if RecRef::pop(&mut ptr).is_none() {
             break;
         }
     }
 
-    // updating the root isn't super necessary, as the root
-    // does participate in select during one mcts step
-    ptr.q_value += reward;
+    // if last == "(Some(Move[f2f4]), Black)" {
+    //     println!("backward: reward {} last {:?} path {:?}", reward, last, builder.string());
+    // }
 }
 
 fn select<'a, G, S>(
@@ -72,10 +81,12 @@ fn select<'a, G, S>(
 where
     G: Game<S>,
     S: State,
+    S::Step: std::fmt::Debug,
 {
     //Descend in the tree until some leaf, exploiting the knowledge to choose
     //the best child each time.
     let mut ptr: RecRef<Node<S::Step>> = RecRef::new(node);
+    let mut root = true;
 
     loop {
         let node = ptr.deref();
@@ -92,18 +103,14 @@ where
         let best = if ptr.children.len() == 1 {
             0
         } else {
-            // otherwise, explore by the predicted distrubtion + the Dir(0.03) noise
-            // https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper
-            if prior.len() < 2 {
-                println!("Error: {:?} {:?} {:?}", ptr.children.len(), steps.len(), prior.len());
-                println!("len: {:?}", RecRef::size(&ptr));
-            }
-            let dir = Dirichlet::<f64>::new_with_size(0.03, prior.len()).unwrap();
-            let prior_rand: Vec<f32> = prior
-                .iter()
-                .zip(dir.sample(&mut thread_rng()))
-                .map(|(p, n)| p * 0.75 + n as f32 * 0.25)
-                .collect();
+            let prior_rand: Vec<f32> = if !root {prior} else {
+                let dir = Dirichlet::<f64>::new_with_size(0.03, prior.len()).unwrap();
+                let dir_samples = dir.sample(&mut thread_rng());
+                prior.iter()
+                    .zip(dir_samples.iter())
+                    .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
+                    .collect()
+            };
             let sqrt_total_num_vis =
                 f32::sqrt(i32::sum(ptr.children.iter().map(|c| c.num_act)) as f32);
             let uct_children: Vec<f32> = prior_rand
@@ -120,9 +127,6 @@ where
                     )
                 })
                 .collect();
-            // let uct: Vec<(f32, f32, i32, f32)> = prior_rand.iter().zip(ptr.children.iter()).zip(uct_children.iter()).map(|((p, c), u)| (*p, c.q_value, c.num_act, *u)).collect();
-            // println!("sqrt total n {:?}", sqrt_total_num_vis);
-            // println!("uct {:?}", uct);
             find_max(uct_children.into_iter()).unwrap()
         };
 
@@ -130,6 +134,7 @@ where
         RecRef::extend(&mut ptr, |node: &mut Node<S::Step>| {
             node.children[best].as_mut()
         });
+        root = false;
     }
 }
 
@@ -142,6 +147,7 @@ pub fn mcts<G, S>(
 ) where
     G: Game<S>,
     S: State,
+    S::Step: std::fmt::Debug,
 {
     let default_cpuct: f32 = 1.2;
     let cpuct = cpuct.unwrap_or(default_cpuct);
