@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for trace in `ls *.json`; do
+for trace in `ls *.json | sort -V`; do
   if [ -f $trace ]; then
     winner=$(cat $trace | jq -c ".outcome")
     num_steps=$(cat $trace | jq -r ".steps | length")
