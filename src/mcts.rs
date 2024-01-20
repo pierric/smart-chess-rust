@@ -78,7 +78,7 @@ fn select<'a, G, S>(
     node: &'a mut Node<S::Step>,
     state: &mut S,
     cpuct: f32,
-    noise: &Vec<f64>,
+    noise: &Option<Vec<f64>>,
 ) -> (RecRef<'a, Node<S::Step>>, Vec<S::Step>, f32)
 where
     G: Game<S>,
@@ -105,11 +105,15 @@ where
         let best = if ptr.children.len() == 1 {
             0
         } else {
-            let prior_rand: Vec<f32> = if !root {prior} else {
-                prior.iter()
+            let prior_rand: Vec<f32> = match (root, noise) {
+                (false, _) => prior,
+                (_, None) => prior,
+                (_, Some(noise)) => {
+                    prior.iter()
                     .zip(noise.iter())
                     .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
                     .collect()
+                }
             };
             let sqrt_total_num_vis =
                 f32::sqrt(i32::sum(ptr.children.iter().map(|c| c.num_act)) as f32);
@@ -153,8 +157,10 @@ pub fn mcts<G, S>(
     let cpuct = cpuct.unwrap_or(default_cpuct);
 
     let num_legal_moves = state.legal_moves().len();
-    let dirichlet = Dirichlet::<f64>::new_with_size(0.03, num_legal_moves).unwrap();
-    let noise = dirichlet.sample(&mut thread_rng());
+    let noise = if num_legal_moves < 2 {None} else {
+        let dirichlet = Dirichlet::<f64>::new_with_size(0.03, num_legal_moves).unwrap();
+        Some(dirichlet.sample(&mut thread_rng()))
+    };
 
     for _ in 0..n_rollout {
         let mut local_state = state.dup();
