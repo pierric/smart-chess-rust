@@ -70,7 +70,7 @@ class ChessLightningModule(L.LightningModule):
             "loss1": loss1,
             "loss2": loss2,
         })
-        return loss1 + loss2
+        return loss1 + 0.01 * loss2
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"], weight_decay=1e-4)
@@ -108,7 +108,7 @@ def main():
     lr_monitor = LearningRateMonitor(logging_interval='step')
 
     dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
-    train_loader = DataLoader(dss, num_workers=4, batch_size=4, shuffle=True, drop_last=True)
+    train_loader = DataLoader(dss, num_workers=4, batch_size=32, shuffle=True, drop_last=True)
 
     config = dict(
         epochs = args.epochs,
