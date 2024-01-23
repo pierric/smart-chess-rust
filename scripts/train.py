@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, ConcatDataset, DataLoader
 import torch.nn.functional as F
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
-from lightning.pytorch.callbacks import LearningRateMonitor
+from lightning.pytorch.callbacks import LearningRateMonitor, Callback
 
 import libencoder
 from nn import load_model
@@ -74,22 +74,38 @@ class ChessLightningModule(L.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"], weight_decay=1e-4)
-        return optimizer
-        #from torch.optim.lr_scheduler import OneCycleLR
-        #scheduler = OneCycleLR(
-        #    optimizer=optimizer,
-        #    max_lr=self.config["lr"],
-        #    total_steps=self.config["steps_per_epoch"] * self.config["epochs"]
-        #)
-        #return {
-        #    "optimizer": optimizer,
-        #    "lr_scheduler": {
-        #        "scheduler": scheduler,
-        #        "interval": "step",
-        #        "frequency": 1,
-        #    }
-        #}
+        # return optimizer
 
+        from torch.optim.lr_scheduler import OneCycleLR
+        scheduler = OneCycleLR(
+           optimizer=optimizer,
+           max_lr=self.config["lr"],
+           total_steps=self.config["steps_per_epoch"] * self.config["epochs"]
+        )
+        return {
+           "optimizer": optimizer,
+           "lr_scheduler": {
+               "scheduler": scheduler,
+               "interval": "step",
+               "frequency": 1,
+           }
+        }
+
+
+class ModelCheckpointAtEpochEnd(Callback):
+    def __init__(self, interval):
+        super().__init__()
+        self.interval = interval
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        epoch = trainer.current_epoch
+
+        if (epoch + 1) % self.interval != 0:
+            return
+
+        path = os.path.join(trainer.log_dir, f"epoch-{epoch}.ckpt")
+        print("saving checkpoint: ", path)
+        torch.save(pl_module.model._orig_mod.state_dict(), path)
 
 
 def main():
@@ -98,6 +114,7 @@ def main():
     parser.add_argument("-n", "--epochs", type=int, default=4)
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
+    parser.add_argument("--save-every-k", type=int, default=4)
     args = parser.parse_args()
 
     if not args.trace_file:
@@ -105,10 +122,13 @@ def main():
         return
 
     logger = TensorBoardLogger("tb_logs", name="chess")
-    lr_monitor = LearningRateMonitor(logging_interval='step')
+    lightning_checkpoints = [
+        LearningRateMonitor(logging_interval='step'),
+        ModelCheckpointAtEpochEnd(args.save_every_k),
+    ]
 
     dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
-    train_loader = DataLoader(dss, num_workers=4, batch_size=32, shuffle=True, drop_last=True)
+    train_loader = DataLoader(dss, num_workers=4, batch_size=128, shuffle=True, drop_last=True)
 
     config = dict(
         epochs = args.epochs,
@@ -116,15 +136,16 @@ def main():
         lr = args.lr,
         trace_files = args.trace_file,
         last_ckpt = args.last_ckpt,
+        save_every_k = args.save_every_k,
     )
 
     module = ChessLightningModule(config)
     trainer = L.Trainer(
         enable_checkpointing=False,
         logger=logger,
-        callbacks=[lr_monitor],
+        callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
-        log_every_n_steps=20
+        log_every_n_steps=100,
     )
     trainer.fit(model=module, train_dataloaders=train_loader)
 

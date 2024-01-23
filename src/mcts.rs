@@ -184,6 +184,7 @@ pub fn mcts<G, S>(
     }
 }
 
+#[allow(dead_code)]
 pub fn step<S>(
     cursor: &mut CursorMut<S::Step>,
     state: &mut S,

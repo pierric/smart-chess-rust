@@ -181,13 +181,18 @@ fn main() {
 
     match r {
         Ok(nn) => {
-            let mut trace = trace::Trace::new();
             let chess = game::Chess {
                 model: nn,
-                device: "cuda",
+                device: String::from("cuda"),
             };
 
-            debug_trace(chess, "replay/308/4.json", 2, args);
+            // from tournament, model #308, play #4
+            // let trace = ("eval/4.json", 3);
+
+            // from training/self-play round #12
+            let trace = ("eval/trace7.json", 12);
+
+            debug_trace(chess, trace.0, trace.1, args);
             // debug_step(chess, "runs/86/trace8.json", 9);
         },
         Err(_) => todo!()

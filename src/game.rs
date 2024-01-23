@@ -33,9 +33,9 @@ pub trait State {
     fn legal_moves(&self) -> Vec<Self::Step>;
 }
 
-pub struct Chess<'a> {
+pub struct Chess {
     pub model: Py<PyAny>,
-    pub device: &'a str,
+    pub device: String,
 }
 
 #[cached(
@@ -117,16 +117,16 @@ ret_score = ret_score.detach().cpu().item()
     })
 }
 
-// #[cached(
-//     type = "SizedCache<(u64), (Vec<Board>, Vec<f32>, f32)>",
-//     create = "{ SizedCache::with_size(50000) }",
-//     convert = r#"{
-//         let mut hasher = DefaultHasher::new();
-//         let ptr = node as *const Node<Board>;
-//         ptr.hash(&mut hasher);
-//         hasher.finish()
-//     }"#
-// )]
+#[cached(
+    type = "SizedCache<(bool, Vec<Move>), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
+    create = "{ SizedCache::with_size(5000) }",
+    convert = r#"{
+        // let mut hasher = DefaultHasher::new();
+        // state.move_stack().hash(&mut hasher);
+        // (argmax, hasher.finish())
+        (argmax, state.move_stack())
+    }"#
+)]
 fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
     let current_board = state.to_board();
     let legal_moves = state.legal_moves();
@@ -163,7 +163,7 @@ fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &Boa
 
     let (moves_distr, score) = call_py_model(
         &chess.model,
-        chess.device,
+        &chess.device,
         encoded_boards,
         encoded_meta,
         rotate,
@@ -194,7 +194,7 @@ fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &Boa
     return (next_steps, moves_distr, score);
 }
 
-impl Game<BoardState> for Chess<'_> {
+impl Game<BoardState> for Chess {
     fn predict(
         &self,
         node: &Node<<BoardState as State>::Step>,

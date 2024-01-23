@@ -613,6 +613,12 @@ impl BoardState {
             py.eval("list(board.legal_moves)", None, Some(&locals)).unwrap().extract().unwrap()
         })
     }
+
+    pub fn move_stack(&self) -> Vec<Move> {
+        Python::with_gil(|py| {
+            self.python_object.getattr(py, intern!(py, "move_stack")).unwrap().extract(py).unwrap()
+        })        
+    }
 }
 
 impl game::State for BoardState {

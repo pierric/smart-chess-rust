@@ -7,6 +7,7 @@ pub struct Trace {
     outcome: Option<chess::Outcome>,
 }
 
+#[allow(dead_code)]
 impl Trace {
     pub fn new() -> Self {
         Trace { steps: Vec::new(), outcome: None }

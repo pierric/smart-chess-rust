@@ -67,7 +67,7 @@ fn main() {
             let mut trace = trace::Trace::new();
             let chess = game::Chess {
                 model: nn,
-                device: &args.device,
+                device: args.device.clone(),
             };
 
             let mut state = chess::BoardState::new();

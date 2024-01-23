@@ -1,0 +1,36 @@
+#! /bin/bash
+
+export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
+export PYTHONPATH=$ROOT/py
+
+
+task() {
+    JOB_ID=$1
+    ITER=$2
+    VER=$3
+    STEP=$4
+    WHITE="runs/$ITER/tb_logs/chess/$VER/epoch-$STEP.ckpt"
+    shift 4
+    echo "Run index ${JOB_ID}: W ${WHITE} ARGS $@"
+
+    mkdir -p "replay/$ITER/$STEP"
+    cargo r --bin play --release -- \
+        --white-checkpoint $WHITE --black-type nn --black-checkpoint ''\
+        -o $ITER/$STEP/${JOB_ID}.json\
+        $@
+}
+
+export -f task
+
+ITER=0
+VER=version_1
+
+set -ex
+#parallel -j3 task {#} $ITER $VER 3  -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
+# parallel -j3 task {#} $ITER $VER 23 -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
+# parallel -j3 task {#} $ITER $VER 43 -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
+# parallel -j3 task {#} $ITER $VER 63 -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
+# parallel -j3 task {#} $ITER $VER 83 -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
+# parallel -j3 task {#} $ITER $VER 99 -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
+parallel -j3 task {#} $ITER $VER 79 -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
+parallel -j3 task {#} $ITER $VER 87 -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 100)
