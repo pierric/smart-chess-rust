@@ -24,7 +24,7 @@ class ResBlock(torch.nn.Module):
 
 
 class ChessModule(torch.nn.Module):
-    N_RES_BLOCKS = 19
+    N_RES_BLOCKS = 6
 
     def __init__(self):
         super().__init__()
@@ -76,7 +76,11 @@ def load_model(device=None, checkpoint=None, inference=True):
 
     if checkpoint:
         print("..loading checkpoint: ", checkpoint)
-        model.load_state_dict(torch.load(checkpoint), strict=True)
+        r = model.load_state_dict(torch.load(checkpoint), strict=True)
+        if r.missing_keys:
+            print("missing keys", r.missing_keys)
+        if r.unexpected_keys:
+            print("unexpected keys", r.unexpected_keys)
 
     if inference:
         model.eval()
