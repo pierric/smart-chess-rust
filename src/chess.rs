@@ -5,13 +5,16 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use cached::proc_macro::cached;
+use cached::SizedCache;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Not;
 
 #[derive(Debug)]
 pub enum EncodeError {
-    PythonError(PyErr),
     NotKnightMove,
     NotQueenMove,
     NotPromotion,
@@ -472,9 +475,72 @@ impl Move {
             .unwrap()
     }
 }
+ 
+#[cached(
+    type = "SizedCache<u64, Array3<u32>>",
+    create = "{ SizedCache::with_size(5000) }",
+    convert = r#"{
+        let mut hasher = DefaultHasher::new();
+        board.piece_map.hash(&mut hasher);
+        board.repetition2.hash(&mut hasher);
+        board.repetition3.hash(&mut hasher);
+        hasher.finish()
+    }"#
+)] 
+fn _encode_pieces(board: &Board) -> Array3<u32> {
+    let mut array = Array3::<u32>::zeros((8, 8, 14));
+
+    for (square, piece) in board.piece_map.iter() {
+        let piece_type = piece.piece_type;
+        let color = piece.color;
+
+        // The first six planes encode the pieces of the active player,
+        // the following six those of the active player's opponent. Since
+        // this class always stores boards oriented towards the white player,
+        // White is considered to be the active player here.
+        let offset = if color == Color::White { 0 } else { 6 };
+
+        // Chess enumerates piece types beginning with one, which we have
+        // to account for
+        let idx = piece_type as i32 - 1;
+
+        let rank = square.rank.try_into().unwrap();
+        let file = square.file.try_into().unwrap();
+
+        array[Ix3(rank, file, (idx + offset).try_into().unwrap())] = 1;
+    }
+    // Repetition counters
+    array
+        .slice_mut(s![.., .., 12])
+        .fill(board.repetition2 as u32);
+    array
+        .slice_mut(s![.., .., 13])
+        .fill(board.repetition3 as u32);
+
+    return array;
+}
+
+#[cached(
+    type = "SizedCache<u64, Board>",
+    create = "{ SizedCache::with_size(5000) }",
+    convert = r#"{
+        let mut hasher = DefaultHasher::new();
+        moves.hash(&mut hasher);
+        hasher.finish()
+    }"#
+)]
+pub fn get_board_from_moves(moves: &Vec<Move>) -> Board {
+    let mut state = BoardState::new();
+
+    for m in moves.iter() {
+        state.next(m);
+    }
+
+    return state.to_board();
+}
 
 impl Board {
-    fn rotate(&self) -> Self {
+    pub fn rotate(&self) -> Self {
         let piece_map = self
             .piece_map
             .iter()
@@ -491,7 +557,7 @@ impl Board {
         let swap = |(a, b)| (b, a);
 
         return Self {
-            last_move: self.last_move,
+            last_move: self.last_move.map(|m| m.rotate()),
             turn: !self.turn,
             piece_map,
             repetition2: self.repetition2,
@@ -502,38 +568,9 @@ impl Board {
             has_queenside_castling_rights: swap(self.has_queenside_castling_rights),
         };
     }
-
-    fn encode_pieces(&self) -> Array3<u32> {
-        let mut array = Array3::<u32>::zeros((8, 8, 14));
-
-        for (square, piece) in self.piece_map.iter() {
-            let piece_type = piece.piece_type;
-            let color = piece.color;
-
-            // The first six planes encode the pieces of the active player,
-            // the following six those of the active player's opponent. Since
-            // this class always stores boards oriented towards the white player,
-            // White is considered to be the active player here.
-            let offset = if color == Color::White { 0 } else { 6 };
-
-            // Chess enumerates piece types beginning with one, which we have
-            // to account for
-            let idx = piece_type as i32 - 1;
-
-            let rank = square.rank.try_into().unwrap();
-            let file = square.file.try_into().unwrap();
-
-            array[Ix3(rank, file, (idx + offset).try_into().unwrap())] = 1;
-        }
-        // Repetition counters
-        array
-            .slice_mut(s![.., .., 12])
-            .fill(self.repetition2 as u32);
-        array
-            .slice_mut(s![.., .., 13])
-            .fill(self.repetition3 as u32);
-
-        return array;
+ 
+    pub fn encode_pieces(&self) -> Array3<u32> {
+        _encode_pieces(self)
     }
 
     pub fn encode_meta(&self) -> Array3<u32> {
@@ -591,6 +628,7 @@ impl BoardState {
         .unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn prev(&mut self) -> Option<Move> {
         Python::with_gil(|py| {
             self.python_object
@@ -657,10 +695,20 @@ impl BoardHistory {
         };
     }
 
-    pub fn push(&mut self, board: &Board) {
-        self.history.pop_back();
+    #[allow(dead_code)]
+    pub fn push_front(&mut self, board: &Board) {
+        if self.history.len() == self.size {
+            self.history.pop_back();
+        }
         self.history.push_front(board.clone());
     }
+
+    #[allow(dead_code)]
+    pub fn push_back(&mut self, board: &Board) {
+        if self.history.len() < self.size {
+            self.history.push_back(board.clone());
+        }
+    }    
 
     pub fn view(&self, rotate: bool) -> Array3<u32> {
         let mut full = Array3::<u32>::zeros((8, 8, 14 * self.size));
@@ -672,8 +720,8 @@ impl BoardHistory {
             } else {
                 board.encode_pieces()
             };
-            full.slice_mut(s![.., .., 14 * idx..14 * (idx + 1)])
-                .assign(&array);
+            let base = 14 * idx;
+            full.slice_mut(s![.., .., base..base+14]).assign(&array);
         }
         full
     }
