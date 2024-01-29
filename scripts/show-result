@@ -1,9 +1,24 @@
 #!/bin/bash
 
+total=0
+white=0
+black=0
+
 for trace in `ls *.json | sort -V`; do
   if [ -f $trace ]; then
     winner=$(cat $trace | jq -c ".outcome")
     num_steps=$(cat $trace | jq -r ".steps | length")
     echo "$trace, $winner, num-steps: $num_steps"
+
+    color=$(cat $trace | jq -r ".outcome.winner")
+    case $color in
+      "White")
+        white=$(($white + 1));;
+      "Black")
+        black=$(($black + 1));;
+    esac
+    total=$(($total + 1))
   fi
 done
+
+echo $total / $white / $black

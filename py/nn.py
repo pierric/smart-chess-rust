@@ -85,4 +85,4 @@ def load_model(device=None, checkpoint=None, inference=True):
     if inference:
         model.eval()
 
-    return torch.compile(model, mode="reduce-overhead").to(device)
+    return torch.compile(model, mode="reduce-overhead", fullgraph=True).to(device)

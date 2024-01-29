@@ -1,7 +1,7 @@
 #! /bin/bash
 
 for f in `ls trace*.json`; do
-    outcome=$(cat "$f" | jq -r ".outcome")
+    outcome=$(cat "$f" | jq -r ".outcome.winner")
     if [ "$outcome" = "null" ]; then
         echo "remove $f because of no result"
         rm $f
