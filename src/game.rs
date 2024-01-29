@@ -1,4 +1,4 @@
-use crate::chess::{BoardHistory, BoardState, Color, Move};
+use crate::chess::{BoardHistory, BoardState, Color, Move, get_board_from_moves};
 use crate::mcts::Node;
 use ndarray::Array3;
 use numpy::array::{PyArray1, PyArray3};
@@ -39,14 +39,14 @@ pub struct Chess {
 }
 
 #[cached(
-    type = "SizedCache<(String, bool, u64), (Vec<f32>, f32)>",
+    type = "SizedCache<(String, Color, u64), (Vec<f32>, f32)>",
     create = "{ SizedCache::with_size(5000) }",
     convert = r#"{
         let mut hasher = DefaultHasher::new();
         boards.hash(&mut hasher);
         meta.hash(&mut hasher);
         steps.hash(&mut hasher);
-        (String::from(device), rotate, hasher.finish())
+        (String::from(device), turn, hasher.finish())
     }"#
 )]
 fn call_py_model(
@@ -54,7 +54,7 @@ fn call_py_model(
     device: &str,
     boards: Array3<u32>,
     meta: Array3<u32>,
-    rotate: bool,
+    turn: Color,
     steps: &Vec<Move>,
 ) -> (Vec<f32>, f32) {
     Python::with_gil(|py| {
@@ -94,13 +94,15 @@ ret_score = ret_score.detach().cpu().item()
             .unwrap()
             .extract()
             .unwrap();
-        // how possible is white going to win
-        let score = score * (if rotate { -1. } else { 1. });
+        // how good is the current board for the next player (turn)
+        // This must be in sync with that in training script
+        let score = score * (if turn == Color::Black { -1. } else { 1. });
 
+        // rotate if the next move is black
         let encoded_moves: Vec<i32> = steps
             .iter()
             .map(|m| {
-                if rotate {
+                if turn == Color::Black {
                     m.rotate().encode()
                 } else {
                     m.encode()
@@ -118,13 +120,10 @@ ret_score = ret_score.detach().cpu().item()
 }
 
 #[cached(
-    type = "SizedCache<(bool, Vec<Move>), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
+    type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
     create = "{ SizedCache::with_size(5000) }",
     convert = r#"{
-        // let mut hasher = DefaultHasher::new();
-        // state.move_stack().hash(&mut hasher);
-        // (argmax, hasher.finish())
-        (argmax, state.move_stack())
+        (argmax, state.move_stack(), node.step.1)
     }"#
 )]
 fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
@@ -141,24 +140,25 @@ fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &Boa
     }
 
     let mut history = BoardHistory::new(LOOKBACK);
-    let mut dup_state = state.dup();
+    let mut move_stack = state.move_stack();
 
     let mut cur = NonNull::from(node);
     for _ in 0..LOOKBACK {
         let n = unsafe { cur.as_ref() };
-        history.push(&dup_state.to_board());
+        // latter boards are kept at the front
+        // must be in sync with encode_steps in lib.rs
+        history.push_back(&get_board_from_moves(&move_stack));
         match n.parent {
             None => break,
             Some(parent) => {
-                let m = dup_state.prev();
+                let m = move_stack.pop();
                 assert!(m == n.step.0, "sanity check on the last move failed");
                 cur = parent;
             },
         }
     }
 
-    let rotate = node.step.1 == Color::Black;
-    let encoded_boards = history.view(rotate);
+    let encoded_boards = history.view(node.step.1 == Color::Black);
     let encoded_meta = current_board.encode_meta();
 
     let (moves_distr, score) = call_py_model(
@@ -166,7 +166,7 @@ fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &Boa
         &chess.device,
         encoded_boards,
         encoded_meta,
-        rotate,
+        node.step.1,
         &legal_moves,
     );
 

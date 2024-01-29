@@ -29,17 +29,17 @@ fn encode_steps(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, 
         for (mov, num_act) in steps.iter() {
             let step = board_state.to_board();
             let legal_moves = board_state.legal_moves();
-            board_state.next(mov);
-            history.push(&step);
+            // latter boards stay at the front
+            history.push_front(&step);
 
-            let rotate = step.turn == chess::Color::Black;
-            let encoded_boards = history.view(rotate);
+            let encoded_boards = history.view(step.turn == chess::Color::Black);
             let encoded_meta = step.encode_meta();
 
+            // rotate the move if black
             let moves_indices: Vec<i32> = legal_moves
                 .iter()
                 .map(|m| {
-                    if rotate {
+                    if step.turn == chess::Color::Black {
                         m.rotate().encode()
                     } else {
                         m.encode()
@@ -67,10 +67,23 @@ fn encode_steps(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, 
                 encoded_dist.into_py(py),
                 moves_indices.into_py(py),
             ));
+            board_state.next(mov);
         }
     });
 
     Ok(ret)
+}
+
+#[pyfunction]
+fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, PyObject)> {
+    Python::with_gil(|py| {
+        let board = if view == chess::Color::White {board} else {
+            board.rotate()
+        };
+        let encoded_boards: &PyArray3<u32> = PyArray3::from_array(py, &board.encode_pieces());
+        let encoded_meta: &PyArray3<u32> = PyArray3::from_array(py, &board.encode_meta());
+        Ok((encoded_boards.into_py(py), encoded_meta.into_py(py)))
+    })
 }
 
 /// A Python module implemented in Rust. The name of this function must match
@@ -78,6 +91,7 @@ fn encode_steps(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, 
 /// import the module.
 #[pymodule]
 fn libencoder(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(encode_board, m)?)?;
     m.add_function(wrap_pyfunction!(encode_move, m)?)?;
     m.add_function(wrap_pyfunction!(encode_steps, m)?)?;
     Ok(())
