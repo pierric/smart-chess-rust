@@ -200,10 +200,10 @@ fn play_loop<W, B>(white: W, black: B, cursor: &mut MctsCursor, state: &mut ches
         }
 
         count += 1;
-        if count >= 75 {
+        if count >= 150 {
             break
         }
-    }    
+    }
 }
 
 fn main() {
