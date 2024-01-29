@@ -1,6 +1,4 @@
 use crate::chess::{EncodeError, Move, PieceType};
-use pyo3::prelude::*;
-use pyo3::types::IntoPyDict;
 
 pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
     let is_queen_move_promotion =
@@ -19,44 +17,18 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
         return Err(EncodeError::NotQueenMove);
     }
 
-    Python::with_gil(|py| {
-        let np = match py.import("numpy") {
-            Err(e) => return Err(EncodeError::PythonError(e)),
-            Ok(np) => np,
-        };
-        let locals = [
-            ("np", np.to_object(py)),
-            ("delta0", delta0.to_object(py)),
-            ("delta1", delta1.to_object(py)),
-            ("from_rank", mov.from.rank.to_object(py)),
-            ("from_file", mov.from.file.to_object(py)),
-            ("distance_idx", distance_idx.to_object(py)),
-        ]
-        .into_py_dict(py);
-
-        let code = r#"
-direction = np.sign([delta0, delta1])
-direction_table = [
-    [5,4,3],
-    [6,8,2],
-    [7,0,1],
-]
-direction_idx = np.array(direction_table, np.int32)[tuple(direction+1)]
-move_type = np.ravel_multi_index(
-    ([direction_idx, distance_idx]),
-    (8,7)
-)
-
-action = np.ravel_multi_index(
-    ((from_rank, from_file, move_type)),
-    (8, 8, 73)
-)"#;
-        py.run(code, None, Some(&locals)).unwrap();
-        locals
-            .get_item("action")
-            .unwrap()
-            .unwrap()
-            .extract()
-            .map_err(EncodeError::PythonError)
-    })
+    let direction_idx = match (delta0.signum(), delta1.signum()) {
+        (-1, -1) => 5,
+        (-1, 0)  => 4,
+        (-1, 1)  => 3,
+        (0, -1)  => 6,
+        (0, 1)   => 2,
+        (1, -1)  => 7,
+        (1, 0)   => 0,
+        (1, 1)   => 1,
+        _ => todo!("impossible direction for a queue move")
+    };
+    let move_type = direction_idx * 7 + distance_idx;
+    let action = mov.from.rank * 8 * 73 + mov.from.file * 73 + move_type;
+    Ok(action)
 }
