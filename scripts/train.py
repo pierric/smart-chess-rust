@@ -14,6 +14,8 @@ from lightning.pytorch.callbacks import LearningRateMonitor, Callback
 import libencoder
 from nn import load_model
 
+BATCH_SIZE = 128
+
 
 def _get_outcome(res):
     if res is None:
@@ -64,13 +66,15 @@ class ChessLightningModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         boards, dist, outcome = batch
         dist_pred, value_pred = self.model(boards)
-        loss1 = F.kl_div(dist_pred, dist, reduction="batchmean")
-        loss2 = F.mse_loss(value_pred, outcome)
+
+        loss1 = - (dist_pred * dist).sum() / self.config["batch_size"]
+
+        loss2 = F.mse_loss(value_pred, outcome, reduction="sum") / self.config["batch_size"]
         self.log_dict({
             "loss1": loss1,
             "loss2": loss2,
         })
-        return loss1 + 0.01 * loss2
+        return loss1 + 0.002 * loss2
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"], weight_decay=1e-4)
@@ -91,7 +95,6 @@ class ChessLightningModule(L.LightningModule):
            }
         }
 
-
 class ModelCheckpointAtEpochEnd(Callback):
     def __init__(self, interval):
         super().__init__()
@@ -107,14 +110,13 @@ class ModelCheckpointAtEpochEnd(Callback):
         print("saving checkpoint: ", path)
         torch.save(pl_module.model._orig_mod.state_dict(), path)
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--trace-file", nargs="*", action="extend")
-    parser.add_argument("-n", "--epochs", type=int, default=4)
+    parser.add_argument("-n", "--epochs", type=int, default=100)
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
-    parser.add_argument("--save-every-k", type=int, default=4)
+    parser.add_argument("--save-every-k", type=int, default=10)
     args = parser.parse_args()
 
     if not args.trace_file:
@@ -128,9 +130,10 @@ def main():
     ]
 
     dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
-    train_loader = DataLoader(dss, num_workers=4, batch_size=128, shuffle=True, drop_last=True)
+    train_loader = DataLoader(dss, num_workers=4, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 
     config = dict(
+        batch_size = BATCH_SIZE,
         epochs = args.epochs,
         steps_per_epoch = len(train_loader),
         lr = args.lr,
@@ -145,7 +148,7 @@ def main():
         logger=logger,
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
-        log_every_n_steps=100,
+        log_every_n_steps=15,
     )
     trainer.fit(model=module, train_dataloaders=train_loader)
 
