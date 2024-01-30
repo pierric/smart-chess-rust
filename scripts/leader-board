@@ -9,7 +9,7 @@ task() {
     ITER=$2
     VER=$3
     STEP=$4
-    WHITE="runs/$ITER/tb_logs/chess/$VER/epoch-$STEP.ckpt"
+    WHITE="runs/$ITER/tb_logs/chess/$VER/epoch-$STEP.pt"
     shift 4
     echo "Run index ${JOB_ID}: W ${WHITE} ARGS $@"
 
@@ -25,8 +25,9 @@ export -f task
 set -ex
 # export BLACK=''
 # parallel -j3 task {#} 3 version_0 99 -d cuda --rollout=300 --temperature 0 --cpuct 1 ::: $(seq 1 100)
-export BLACK="runs/3/tb_logs/chess/version_0/epoch-99.ckpt"
-parallel -j3 task {#} 4 version_6  99  -d cuda --rollout=200 --temperature 0 --cpuct 0.5 ::: $(seq 1 50)
-parallel -j3 task {#} 4 version_6  89  -d cuda --rollout=200 --temperature 0 --cpuct 0.5 ::: $(seq 1 50)
-parallel -j3 task {#} 4 version_6  79  -d cuda --rollout=200 --temperature 0 --cpuct 0.5 ::: $(seq 1 50)
-parallel -j3 task {#} 4 version_6  69  -d cuda --rollout=200 --temperature 0 --cpuct 0.5 ::: $(seq 1 50)
+export BLACK="runs/3/tb_logs/chess/version_0/epoch-99.pt"
+parallel -j3 task {#} 4 version_7  99  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
+parallel -j3 task {#} 4 version_7  89  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
+parallel -j3 task {#} 4 version_7  79  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
+parallel -j3 task {#} 4 version_7  69  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
+parallel -j3 task {#} 4 version_7  59  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)

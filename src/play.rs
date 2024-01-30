@@ -1,7 +1,6 @@
 use std::fs::create_dir;
 use std::cmp::Eq;
 use std::ptr::NonNull;
-use pyo3::prelude::*;
 use clap::{Parser, ValueEnum};
 use trace::Trace;
 use uci::Engine;
@@ -111,25 +110,26 @@ struct NNPlayer {
     n_rollout: i32,
     cpuct: f32,
     temperature: f32,
-    game: game::Chess
+    game: game::ChessTS
 }
 
 impl Player for NNPlayer {
     type Config = (String, String, i32, f32, f32);
 
     fn load(args: Self::Config) -> Self {
-        let nn = Python::with_gil(|py| {
-            let kwargs = pyo3::types::PyDict::new(py);
-            kwargs.set_item("device", &args.0)?;
-            kwargs.set_item("checkpoint", &args.1)?;
-            let nn: &PyAny = py
-                .import("nn")?
-                .getattr("load_model")?
-                .call((), Some(kwargs))?;
-            Ok::<Py<PyAny>, PyErr>(nn.into())
-        }).unwrap();
+        let device = match args.0.as_str() {
+            "cpu"  => tch::Device::Cpu,
+            "cuda" => tch::Device::Cuda(0),
+            _      => todo!("Unsupported device name"),
+        };
+    
+        let chess = game::ChessTS {
+            model: tch::CModule::load_on_device(args.1, device).unwrap(),
+            device: device,
+        };
+
         NNPlayer {
-            game: game::Chess { model: nn, device: args.0 },
+            game: chess,
             n_rollout: args.2,
             cpuct: args.3,
             temperature: args.4,

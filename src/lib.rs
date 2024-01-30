@@ -57,8 +57,8 @@ fn encode_steps(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, 
                 encoded_dist[Ix1(*k as usize)] = v;
             }
 
-            let encoded_boards: &PyArray3<u32> = PyArray3::from_array(py, &encoded_boards);
-            let encoded_meta: &PyArray3<u32> = PyArray3::from_array(py, &encoded_meta);
+            let encoded_boards: &PyArray3<i32> = PyArray3::from_array(py, &encoded_boards);
+            let encoded_meta: &PyArray3<i32> = PyArray3::from_array(py, &encoded_meta);
             let encoded_dist: &PyArray1<f32> = PyArray1::from_array(py, &encoded_dist);
 
             ret.push((
@@ -80,8 +80,8 @@ fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, 
         let board = if view == chess::Color::White {board} else {
             board.rotate()
         };
-        let encoded_boards: &PyArray3<u32> = PyArray3::from_array(py, &board.encode_pieces());
-        let encoded_meta: &PyArray3<u32> = PyArray3::from_array(py, &board.encode_meta());
+        let encoded_boards: &PyArray3<i32> = PyArray3::from_array(py, &board.encode_pieces());
+        let encoded_meta: &PyArray3<i32> = PyArray3::from_array(py, &board.encode_meta());
         Ok((encoded_boards.into_py(py), encoded_meta.into_py(py)))
     })
 }

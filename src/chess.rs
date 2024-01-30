@@ -477,7 +477,7 @@ impl Move {
 }
  
 #[cached(
-    type = "SizedCache<u64, Array3<u32>>",
+    type = "SizedCache<u64, Array3<i32>>",
     create = "{ SizedCache::with_size(5000) }",
     convert = r#"{
         let mut hasher = DefaultHasher::new();
@@ -487,8 +487,8 @@ impl Move {
         hasher.finish()
     }"#
 )] 
-fn _encode_pieces(board: &Board) -> Array3<u32> {
-    let mut array = Array3::<u32>::zeros((8, 8, 14));
+fn _encode_pieces(board: &Board) -> Array3<i32> {
+    let mut array = Array3::<i32>::zeros((8, 8, 14));
 
     for (square, piece) in board.piece_map.iter() {
         let piece_type = piece.piece_type;
@@ -512,10 +512,10 @@ fn _encode_pieces(board: &Board) -> Array3<u32> {
     // Repetition counters
     array
         .slice_mut(s![.., .., 12])
-        .fill(board.repetition2 as u32);
+        .fill(board.repetition2 as i32);
     array
         .slice_mut(s![.., .., 13])
-        .fill(board.repetition3 as u32);
+        .fill(board.repetition3 as i32);
 
     return array;
 }
@@ -569,23 +569,23 @@ impl Board {
         };
     }
  
-    pub fn encode_pieces(&self) -> Array3<u32> {
+    pub fn encode_pieces(&self) -> Array3<i32> {
         _encode_pieces(self)
     }
 
-    pub fn encode_meta(&self) -> Array3<u32> {
-        let mut meta = Array3::<u32>::zeros((8, 8, 7));
-        meta.slice_mut(s![.., .., 0]).fill(self.turn as u32);
-        meta.slice_mut(s![.., .., 1]).fill(self.fullmove_number);
+    pub fn encode_meta(&self) -> Array3<i32> {
+        let mut meta = Array3::<i32>::zeros((8, 8, 7));
+        meta.slice_mut(s![.., .., 0]).fill(self.turn as i32);
+        meta.slice_mut(s![.., .., 1]).fill(self.fullmove_number as i32);
         meta.slice_mut(s![.., .., 2])
-            .fill(self.has_kingside_castling_rights.0 as u32);
+            .fill(self.has_kingside_castling_rights.0 as i32);
         meta.slice_mut(s![.., .., 3])
-            .fill(self.has_queenside_castling_rights.0 as u32);
+            .fill(self.has_queenside_castling_rights.0 as i32);
         meta.slice_mut(s![.., .., 4])
-            .fill(self.has_kingside_castling_rights.1 as u32);
+            .fill(self.has_kingside_castling_rights.1 as i32);
         meta.slice_mut(s![.., .., 5])
-            .fill(self.has_queenside_castling_rights.1 as u32);
-        meta.slice_mut(s![.., .., 6]).fill(self.halfmove_clock);
+            .fill(self.has_queenside_castling_rights.1 as i32);
+        meta.slice_mut(s![.., .., 6]).fill(self.halfmove_clock as i32);
         return meta;
     }
 }
@@ -710,8 +710,8 @@ impl BoardHistory {
         }
     }    
 
-    pub fn view(&self, rotate: bool) -> Array3<u32> {
-        let mut full = Array3::<u32>::zeros((8, 8, 14 * self.size));
+    pub fn view(&self, rotate: bool) -> Array3<i32> {
+        let mut full = Array3::<i32>::zeros((8, 8, 14 * self.size));
 
         for idx in 0..self.history.len() {
             let board = self.history.get(idx).unwrap();

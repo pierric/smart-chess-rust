@@ -68,6 +68,15 @@ class ChessModule(torch.nn.Module):
         return v1, v2
 
 
+def _load_ckpt(model, checkpoint):
+    print("..loading checkpoint: ", checkpoint)
+    r = model.load_state_dict(torch.load(checkpoint), strict=True)
+    if r.missing_keys:
+        print("missing keys", r.missing_keys)
+    if r.unexpected_keys:
+        print("unexpected keys", r.unexpected_keys)
+
+
 def load_model(device=None, checkpoint=None, inference=True):
     torch.manual_seed(0)
     
@@ -75,14 +84,19 @@ def load_model(device=None, checkpoint=None, inference=True):
     model = ChessModule()
 
     if checkpoint:
-        print("..loading checkpoint: ", checkpoint)
-        r = model.load_state_dict(torch.load(checkpoint), strict=True)
-        if r.missing_keys:
-            print("missing keys", r.missing_keys)
-        if r.unexpected_keys:
-            print("unexpected keys", r.unexpected_keys)
+        _load_ckpt(model, checkpoint)
 
     if inference:
         model.eval()
 
     return torch.compile(model, mode="reduce-overhead", fullgraph=True).to(device)
+
+
+def export(checkpoint, output):
+    model = ChessModule()
+    _load_ckpt(model, checkpoint)
+    model.eval()
+    # model = torch.compile(model, mode="reduce-overhead", fullgraph=True).to("cuda")
+    script_model = torch.jit.script(model)
+    torch.jit.save(script_model, output)
+

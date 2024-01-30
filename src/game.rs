@@ -38,6 +38,11 @@ pub struct Chess {
     pub device: String,
 }
 
+pub struct ChessTS {
+    pub model: tch::CModule,
+    pub device: tch::Device,
+}
+
 #[cached(
     type = "SizedCache<(String, Color, u64), (Vec<f32>, f32)>",
     create = "{ SizedCache::with_size(5000) }",
@@ -52,8 +57,8 @@ pub struct Chess {
 fn call_py_model(
     model: &Py<PyAny>,
     device: &str,
-    boards: Array3<u32>,
-    meta: Array3<u32>,
+    boards: Array3<i32>,
+    meta: Array3<i32>,
     turn: Color,
     steps: &Vec<Move>,
 ) -> (Vec<f32>, f32) {
@@ -119,26 +124,8 @@ ret_score = ret_score.detach().cpu().item()
     })
 }
 
-#[cached(
-    type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
-    create = "{ SizedCache::with_size(5000) }",
-    convert = r#"{
-        (argmax, state.move_stack(), node.step.1)
-    }"#
-)]
-fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
+fn _encode(node: &Node<(Option<Move>, Color)>, state: &BoardState) -> (Array3<i32>, Array3<i32>) {
     let current_board = state.to_board();
-    let legal_moves = state.legal_moves();
-
-    if legal_moves.is_empty() {
-        let outcome = match state.outcome().unwrap().winner {
-            None => 0.0,
-            Some(Color::White) => 1.0,
-            Some(Color::Black) => -1.0,
-        };
-        return (Vec::new(), Vec::new(), outcome);
-    }
-
     let mut history = BoardHistory::new(LOOKBACK);
     let mut move_stack = state.move_stack();
 
@@ -161,6 +148,53 @@ fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &Boa
     let encoded_boards = history.view(node.step.1 == Color::Black);
     let encoded_meta = current_board.encode_meta();
 
+    (encoded_boards, encoded_meta)
+}
+
+fn _post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32>{
+    if argmax {
+        let i: usize = distr
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0;
+        let mut distr = vec![0.; distr.len()];
+        distr[i] = 1.;
+        distr
+    } else {
+        let sum = distr.iter().sum::<f32>() + 1e-5;
+
+        if !sum.is_finite() {
+            println!("Warning: {:?}", distr);
+        }
+
+        distr.iter().map(|x| x / sum).collect()
+    }
+}
+
+#[cached(
+    type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
+    create = "{ SizedCache::with_size(5000) }",
+    convert = r#"{
+        (argmax, state.move_stack(), node.step.1)
+    }"#
+)]
+fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
+    
+    let legal_moves = state.legal_moves();
+
+    if legal_moves.is_empty() {
+        let outcome = match state.outcome().unwrap().winner {
+            None => 0.0,
+            Some(Color::White) => 1.0,
+            Some(Color::Black) => -1.0,
+        };
+        return (Vec::new(), Vec::new(), outcome);
+    }
+
+    let (encoded_boards, encoded_meta) = _encode(node, state);
+
     let (moves_distr, score) = call_py_model(
         &chess.model,
         &chess.device,
@@ -170,26 +204,7 @@ fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &Boa
         &legal_moves,
     );
 
-    let moves_distr: Vec<f32> = if argmax {
-        let i: usize = moves_distr
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap()
-            .0;
-        let mut moves_distr = vec![0.; moves_distr.len()];
-        moves_distr[i] = 1.;
-        moves_distr
-    } else {
-        let sum = moves_distr.iter().sum::<f32>() + 1e-5;
-
-        if !sum.is_finite() {
-            println!("Warning: {:?}", moves_distr);
-        }
-
-        moves_distr.iter().map(|x| x / sum).collect()
-    };
-
+    let moves_distr = _post_process_distr(moves_distr, argmax);
     let next_steps = legal_moves.into_iter().map(|m| (Some(m), !node.step.1)).collect();
     return (next_steps, moves_distr, score);
 }
@@ -202,6 +217,100 @@ impl Game<BoardState> for Chess {
         argmax: bool,
     ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
         _chess_predict(self, node, state, argmax)
+    }
+
+    fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
+        node.step.1 == Color::Black
+    }
+}
+
+fn call_ts_model(
+    model: &tch::CModule,
+    device: tch::Device,
+    boards: Array3<i32>,
+    meta: Array3<i32>,
+    turn: Color,
+    steps: &Vec<Move>,
+) -> (Vec<f32>, f32) {
+
+    use tch::Tensor;
+
+    let encoded_boards = Tensor::try_from(boards).unwrap().to_device(device);
+    let encoded_meta = Tensor::try_from(meta).unwrap().to_device(device);
+
+    let inp = Tensor::cat(&[encoded_boards, encoded_meta], 2)
+        .permute([2, 0, 1])
+        .unsqueeze(0)
+        .to_dtype(tch::Kind::Float, true, false);
+    let out = model.forward_is(&[tch::jit::IValue::from(inp)]).unwrap();
+    let (full_distr, score) = <(Tensor, Tensor)>::try_from(out).unwrap();
+
+    // how good is the current board for the next player (turn)
+    // This must be in sync with that in training script
+    let score = f32::try_from(&score).unwrap() * (if turn == Color::Black { -1. } else { 1. });
+
+
+    // rotate if the next move is black
+    let encoded_moves: Vec<i64> = steps
+        .iter()
+        .map(|m| {
+            if turn == Color::Black {
+                m.rotate().encode() as i64
+            } else {
+                m.encode() as i64
+            }
+        })
+        .collect();
+    let encoded_moves = Tensor::from_slice(&encoded_moves).to_device(device);
+    let moves_distr = Vec::<f32>::try_from(full_distr.take(&encoded_moves)).unwrap();
+
+    (moves_distr, score)
+}
+
+#[cached(
+    type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
+    create = "{ SizedCache::with_size(10000) }",
+    convert = r#"{
+        (argmax, state.move_stack(), node.step.1)
+    }"#
+)]
+fn _chess_ts_predict(chess: &ChessTS, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
+    
+    let legal_moves = state.legal_moves();
+
+    if legal_moves.is_empty() {
+        let outcome = match state.outcome().unwrap().winner {
+            None => 0.0,
+            Some(Color::White) => 1.0,
+            Some(Color::Black) => -1.0,
+        };
+        return (Vec::new(), Vec::new(), outcome);
+    }
+
+    let (encoded_boards, encoded_meta) = _encode(node, state);
+
+    let (moves_distr, score) = call_ts_model(
+        &chess.model,
+        chess.device,
+        encoded_boards,
+        encoded_meta,
+        node.step.1,
+        &legal_moves,
+    );
+
+    let moves_distr = _post_process_distr(moves_distr, argmax);
+    let next_steps = legal_moves.into_iter().map(|m| (Some(m), !node.step.1)).collect();
+    return (next_steps, moves_distr, score);
+}
+
+impl Game<BoardState> for ChessTS {
+    fn predict(
+        &self,
+        node: &Node<<BoardState as State>::Step>,
+        state: &BoardState,
+        argmax: bool,
+    ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
+        _chess_ts_predict(self, node, state, argmax)
     }
 
     fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
