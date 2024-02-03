@@ -1,0 +1,1 @@
+cargo flamegraph --bin smartchess -- -t trace0.json -d cuda -n 200 --temperature 0 --cpuct 0.5 --rollout-num 300 -c runs/3/tb_logs/chess/version_0/epoch-99.ckpt
