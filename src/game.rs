@@ -235,13 +235,12 @@ fn call_ts_model(
 
     use tch::Tensor;
 
-    let encoded_boards = Tensor::try_from(boards).unwrap().to_device(device);
-    let encoded_meta = Tensor::try_from(meta).unwrap().to_device(device);
+    let encoded_boards = Tensor::try_from(boards).unwrap().to_device_(device, tch::Kind::Float, true, false);
+    let encoded_meta = Tensor::try_from(meta).unwrap().to_device_(device, tch::Kind::Float, true, false);
 
     let inp = Tensor::cat(&[encoded_boards, encoded_meta], 2)
         .permute([2, 0, 1])
-        .unsqueeze(0)
-        .to_dtype(tch::Kind::Float, true, false);
+        .unsqueeze(0);
     let out = model.forward_is(&[tch::jit::IValue::from(inp)]).unwrap();
     let (full_distr, score) = <(Tensor, Tensor)>::try_from(out).unwrap();
 

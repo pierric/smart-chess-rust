@@ -49,6 +49,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
     let mut state = chess::BoardState::new();
     let mut root = mcts::Node {
         step: (None, chess::Color::White),
+        depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,
@@ -69,6 +70,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
             .map(|m| {
                 Box::new(mcts::Node {
                     step: (Some(m), !turn),
+                    depth: current.depth + 1,
                     q_value: 0.,
                     num_act: 0,
                     parent: parent,
@@ -93,6 +95,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
             let turn = if target_step % 2 == 0 {chess::Color::White} else {chess::Color::Black};
             Box::new(mcts::Node {
                 step: (Some(mov), turn),
+                depth: current.depth + 1,
                 q_value: 0.,
                 num_act: num,
                 parent: parent,
@@ -114,6 +117,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
     let mut state = chess::BoardState::new();
     let mut root = mcts::Node {
         step: (None, chess::Color::White),
+        depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,
@@ -134,6 +138,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
             .map(|m| {
                 Box::new(mcts::Node {
                     step: (Some(m), !turn),
+                    depth: current.depth + 1,
                     q_value: 0.,
                     num_act: 0,
                     parent: parent,
@@ -233,6 +238,7 @@ fn bench_to_board() {
     let mut turn = chess::Color::White;
     let mut root = mcts::Node {
         step: (None, turn),
+        depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,
@@ -252,6 +258,7 @@ fn bench_to_board() {
         current.children.push(
             Box::new(mcts::Node {
                 step: (Some(mov), !turn),
+                depth: current.depth + 1,
                 q_value: 0.,
                 num_act: 0,
                 parent: parent,

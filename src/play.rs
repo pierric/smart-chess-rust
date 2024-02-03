@@ -95,6 +95,7 @@ impl Player for StockfishPlayer {
             node.children.push(
                 Box::new(mcts::Node {
                     step: mov,
+                    depth: node.depth + 1,
                     q_value: 0.,
                     num_act: num_act,
                     parent: parent,
@@ -215,6 +216,7 @@ fn main() {
     let mut state = chess::BoardState::new();
     let mut root = mcts::Node {
         step: (None, chess::Color::White),
+        depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,

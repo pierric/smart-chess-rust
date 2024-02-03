@@ -9,6 +9,7 @@ use rand::distributions::WeightedIndex;
 
 pub struct Node<T> {
     pub step: T,
+    pub depth: u32,
     pub q_value: f32,
     pub num_act: i32,
     pub parent: Option<NonNull<Node<T>>>,
@@ -157,7 +158,7 @@ pub fn mcts<G, S>(
     let cpuct = cpuct.unwrap_or(default_cpuct);
 
     let num_legal_moves = state.legal_moves().len();
-    let noise = if num_legal_moves < 2 {None} else {
+    let noise = if node.depth >= 4  && num_legal_moves < 2 {None} else {
         let dirichlet = Dirichlet::<f64>::new_with_size(0.03, num_legal_moves).unwrap();
         Some(dirichlet.sample(&mut thread_rng()))
     };
@@ -172,6 +173,7 @@ pub fn mcts<G, S>(
             .map(|step| {
                 Box::new(Node {
                     step: step,
+                    depth: path.depth + 1,
                     q_value: 0.,
                     num_act: 0,
                     parent: Some(NonNull::from(&*path)),

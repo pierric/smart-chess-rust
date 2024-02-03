@@ -57,6 +57,7 @@ fn main() {
     let mut state = chess::BoardState::new();
     let mut root = mcts::Node {
         step: (None, chess::Color::White),
+        depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,
