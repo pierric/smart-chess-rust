@@ -1,6 +1,10 @@
 set -eu
 export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
 export PYTHONPATH="$ROOT/py"
+export LIBTORCH_USE_PYTORCH=1
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+export LD_LIBRARY_PATH=venv/lib/python3.11/site-packages/torch/lib/
+
 ARGS=$@
 N=300
 
