@@ -148,7 +148,7 @@ def main():
         logger=logger,
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
-        log_every_n_steps=15,
+        log_every_n_steps=50,
     )
     trainer.fit(model=module, train_dataloaders=train_loader)
 

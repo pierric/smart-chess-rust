@@ -11,12 +11,13 @@ task() {
     STEP=$4
     WHITE="runs/$ITER/tb_logs/chess/$VER/epoch-$STEP.pt"
     shift 4
-    echo "Run index ${JOB_ID}: W ${WHITE} ARGS $@"
 
+    OUTPUT="${ITER}/${VER}_${STEP}"
     mkdir -p "replay/$ITER/${VER}_${STEP}"
+    echo "Run index ${JOB_ID}: W: ${WHITE} B: ${BLACK} ARGS: $@" | tee "replay/$OUTPUT/meta"
     cargo r --bin play --release -- \
         --white-checkpoint $WHITE --black-type nn --black-checkpoint ${BLACK}\
-        -o ${ITER}/${VER}_${STEP}/${JOB_ID}.json\
+        -o "${OUTPUT}/${JOB_ID}.json"\
         $@
 }
 
@@ -25,9 +26,5 @@ export -f task
 set -ex
 # export BLACK=''
 # parallel -j3 task {#} 3 version_0 99 -d cuda --rollout=300 --temperature 0 --cpuct 1 ::: $(seq 1 100)
-export BLACK="runs/3/tb_logs/chess/version_0/epoch-99.pt"
-parallel -j3 task {#} 4 version_7  99  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
-parallel -j3 task {#} 4 version_7  89  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
-parallel -j3 task {#} 4 version_7  79  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
-parallel -j3 task {#} 4 version_7  69  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
-parallel -j3 task {#} 4 version_7  59  -d cuda --rollout=300 --temperature 0 --cpuct 8 ::: $(seq 1 100)
+export BLACK="runs/10/tb_logs/chess/version_5/epoch-29.pt"
+parallel -j2 task {#} 11 version_1 39 -d cuda --rollout=300 --temperature 0 --cpuct 3 ::: $(seq 1 100)

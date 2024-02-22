@@ -12,37 +12,46 @@ export PYTHONPATH=$ROOT/py:$ROOT/target/release
 
 cd $ROOT
 
-LAST_=$(ls runs/ | sort -V -r | head -n 1)
-CURR=${LAST:-$LAST_}
-ITER=$(( $CURR + 1))
-echo "Iteration $ITER"
+####
+# Self-play
+####
 
-mkdir -p runs/$ITER
+LAST_VER="11/version_1/epoch-39"
 
-if [ -z "$(ls | grep -E 'trace.+\.json')" ]; then
-    echo "no trace files. I assume they have been moved already"
-else
-    mv trace*.json runs/$ITER/
-fi
+INFER_ARGS="-d cuda --rollout-num 300 -n 200 --temperature 0 --cpuct 3"
+
+IFS='/' read -ra LAST_VER <<< $LAST_VER
+LAST_ITER=${LAST_VER[0]}
+LAST_CKPT="runs/${LAST_ITER}/tb_logs/chess/${LAST_VER[1]}/${LAST_VER[2]}"
 
 set -ex
-pushd runs/$ITER
-trace_files=( $(ls trace*.json) )
-trace_args=$(join " -t " trace_files)
-ckpt_file=$(find ../$CURR/tb_logs -name "*.ckpt" | sort -V | tail -n 1)
-TRAIN_EPOCHS=${TRAIN_EPOCHS:-4}
-python $ROOT/scripts/train.py $trace_args -n $TRAIN_EPOCHS -c $ckpt_file --lr 0.00001
-popd
-
-ckpt_file=$(find runs/$ITER/tb_logs -name "*.ckpt" | tail -n 1)
-infer_args="-d cuda -n 150 --temperature 0.5 --cpuct 0.5"
-scripts/run_batch $infer_args --rollout-num 300 --checkpoint $ckpt_file
-
-set +ex
+scripts/run_batch $INFER_ARGS -c $LAST_CKPT.pt
 scripts/clean
-# ls trace*.json
-# ret=$?
-# if [ $ret -gt 0 ]; then
-#     scripts/run_batch $infer_args -r 6 --checkpoint $ckpt_file
-#     scripts/clean
-# fi
+scripts/show-result | tail -n1
+set +ex
+
+####
+# Training
+####
+NEXT_ITER=$(( ${LAST_VER[0]} + 1 ))
+mkdir -p runs/$NEXT_ITER
+pushd runs/$NEXT_ITER
+
+NEXT_BATCH=$(find b* -maxdepth 0 -type d | sort -V -r | head -n 1)
+if [ -z "$NEXT_BATCH" ]; then
+    NEXT_BATCH="b0"
+else
+    NEXT_BATCH="b$(( ${NEXT_BATCH#b} + 1 ))"
+fi
+
+mkdir -p $NEXT_BATCH
+mv $ROOT/*.json $NEXT_BATCH/
+echo "$INFER_ARGS -c $LAST_CKPT" > $NEXT_BATCH.txt
+
+set -ex
+python $ROOT/scripts/train.py -t $NEXT_BATCH/*.json -n 50 -c $LAST_CKPT.ckpt --lr 0.0001
+
+LAST_TRAIN_VER=$(ls tb_logs/chess/ | sort -V -r | head -n 1)
+cd "tb_logs/chess/$LAST_TRAIN_VER"
+python $ROOT/scripts/to_torchscript.py -s 19 -e 49
+set +ex
