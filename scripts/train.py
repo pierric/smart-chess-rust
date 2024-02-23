@@ -74,7 +74,7 @@ class ChessLightningModule(L.LightningModule):
             "loss1": loss1,
             "loss2": loss2,
         })
-        return loss1 + 0.002 * loss2
+        return loss1 + self.config["loss_weight"] * loss2
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"], weight_decay=1e-4)
@@ -116,6 +116,7 @@ def main():
     parser.add_argument("-n", "--epochs", type=int, default=100)
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
+    parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=10)
     args = parser.parse_args()
 
@@ -140,6 +141,7 @@ def main():
         trace_files = args.trace_file,
         last_ckpt = args.last_ckpt,
         save_every_k = args.save_every_k,
+        loss_weight = args.loss_weight,
     )
 
     module = ChessLightningModule(config)
