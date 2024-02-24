@@ -16,8 +16,8 @@ cd $ROOT
 # Self-play
 ####
 
-LAST_VER="11/version_1/epoch-39"
-CPUCT=2
+# LAST_VER="11/version_1/epoch-39"
+CPUCT=${CPUCT:-2}
 
 INFER_ARGS="-d cuda --rollout-num 300 -n 200 --temperature 0 --cpuct ${CPUCT}"
 
@@ -26,7 +26,7 @@ LAST_ITER=${LAST_VER[0]}
 LAST_CKPT="runs/${LAST_ITER}/tb_logs/chess/${LAST_VER[1]}/${LAST_VER[2]}"
 
 set -ex
-scripts/run_batch $INFER_ARGS -c $LAST_CKPT.pt
+scripts/run_batch $INFER_ARGS -c "${LAST_CKPT}.pt"
 scripts/clean
 scripts/show-result | tail -n1
 set +ex

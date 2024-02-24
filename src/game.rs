@@ -246,6 +246,7 @@ fn call_ts_model(
 
     // how good is the current board for the next player (turn)
     // This must be in sync with that in training script
+    let score = score.to_dtype(tch::Kind::Float, true, false);
     let score = f32::try_from(&score).unwrap() * (if turn == Color::Black { -1. } else { 1. });
 
 

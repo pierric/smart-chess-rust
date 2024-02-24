@@ -95,8 +95,16 @@ def load_model(device=None, checkpoint=None, inference=True):
 def export(checkpoint, output):
     model = ChessModule()
     _load_ckpt(model, checkpoint)
-    model.eval()
-    # model = torch.compile(model, mode="reduce-overhead", fullgraph=True).to("cuda")
-    script_model = torch.jit.script(model)
-    torch.jit.save(script_model, output)
+    model.cuda().eval()
+    
+    x = torch.randn(1, 119, 8, 8, dtype=torch.float32).cuda()
+    
+    with torch.no_grad():
+        # cache_enabled is critical to "trace" to the model
+        # "script" works fine only for the non-amp model
+        with torch.autocast(device_type="cuda", dtype=torch.float16, cache_enabled=False):
+            model_jit = torch.jit.trace(model, [x])
+            model_jit = torch.jit.freeze(model_jit)
+
+    torch.jit.save(model_jit, output)
 
