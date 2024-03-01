@@ -132,6 +132,7 @@ def load_model(device=None, checkpoint=None, inference=True, compile=True):
 
 
 def export(checkpoint, output):
+    # assuming the model was trained in the QAT way
     model = ChessModule()
     model = prepare_quantization(model)
     _load_ckpt(model, checkpoint)
@@ -142,4 +143,25 @@ def export(checkpoint, output):
     model_jit = torch.jit.trace(model, (x,))
     model_jit = torch.compile(model_jit)
 
+    torch.jit.save(model_jit, output)
+
+
+def export_fp16(checkpoint, output):
+    # assuming the model was trained with AMP
+    model = ChessModule()
+    _load_ckpt(model, checkpoint)
+    model.cuda().eval()
+    
+    x = torch.randn(1, 119, 8, 8, dtype=torch.float32).cuda()
+    
+    with torch.no_grad():
+        # cache_enabled is critical to "trace" to the model
+        # "script" works fine only for the non-amp model
+        with torch.autocast(device_type="cuda", dtype=torch.float16, cache_enabled=False):
+            model_jit = torch.jit.trace(model, [x])
+            model_jit = torch.jit.freeze(model_jit)
+
+    torch.jit.save(model_jit, output)
+    # re-load and save the model to cpu, as the C++ api cannot load for no good reason
+    model = torch.jit.load(output, map_location="cpu")
     torch.jit.save(model_jit, output)
