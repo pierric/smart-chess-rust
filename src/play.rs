@@ -126,7 +126,7 @@ impl Player for NNPlayer {
             "cuda" => tch::Device::Cuda(0),
             _      => todo!("Unsupported device name"),
         };
-    
+
         let chess = game::ChessTS {
             model: tch::CModule::load_on_device(args.1, device).unwrap(),
             device: device,
@@ -233,12 +233,12 @@ fn main() {
         Opponent::Stockfish => {
             let black = StockfishPlayer::load((args.stockfish_bin, args.stockfish_level));
             println!("Players loaded.");
-            play_loop(white, black, &mut cursor, &mut state, &mut trace);    
+            play_loop(white, black, &mut cursor, &mut state, &mut trace);
         },
         Opponent::NN => {
             let black = NNPlayer::load((args.black_device.clone(), args.black_checkpoint, args.rollout, args.cpuct, args.temperature));
             println!("Players loaded.");
-            play_loop(white, black, &mut cursor, &mut state, &mut trace);    
+            play_loop(white, black, &mut cursor, &mut state, &mut trace);
         }
     }
 
