@@ -107,4 +107,6 @@ def export(checkpoint, output):
             model_jit = torch.jit.freeze(model_jit)
 
     torch.jit.save(model_jit, output)
-
+    # re-load and save the model to cpu, as the C++ api cannot load for no good reason
+    model = torch.jit.load(output, map_location="cpu")
+    torch.jit.save(model_jit, output)
