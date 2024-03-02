@@ -19,8 +19,9 @@ cd $ROOT
 # LAST_VER="11/version_1/epoch-39"
 CPUCT=${CPUCT:-2}
 LOSS_WEIGHT=${LOSS_WEIGHT:-0.01}
+DEVICE=${DEVICE:-cuda} # since runs/18, the device has to be cpu because of qunantization
 
-INFER_ARGS="-d cuda --rollout-num 300 -n 200 --temperature 0 --cpuct ${CPUCT}"
+INFER_ARGS="-d ${DEVICE} --rollout-num 300 -n 200 --temperature 0 --cpuct ${CPUCT}"
 
 IFS='/' read -ra LAST_VER <<< $LAST_VER
 LAST_ITER=${LAST_VER[0]}
@@ -51,7 +52,7 @@ mv $ROOT/*.json $NEXT_BATCH/
 echo "$INFER_ARGS -c $LAST_CKPT" > $NEXT_BATCH.txt
 
 set -ex
-python $ROOT/scripts/train.py -t $NEXT_BATCH/*.json -n 50 -c $ROOT/$LAST_CKPT.ckpt --lr 0.0001 --loss-weight ${LOSS_WEIGHT}
+python $ROOT/scripts/train.py -t $NEXT_BATCH/*.json -n 20  -c $ROOT/$LAST_CKPT.ckpt --lr 0.0001 --loss-weight ${LOSS_WEIGHT} --save-every-k 4
 
 LAST_TRAIN_VER=$(ls tb_logs/chess/ | sort -V -r | head -n 1)
 cd "tb_logs/chess/$LAST_TRAIN_VER"

@@ -25,8 +25,11 @@ enum Opponent {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
-    device: String,
+    #[arg(long)]
+    white_device: String,
+
+    #[arg(long, default_value = "<not-specified>")]
+    black_device: String,
 
     #[arg(long, value_enum, default_value_t = Opponent::Stockfish)]
     black_type: Opponent,
@@ -123,7 +126,7 @@ impl Player for NNPlayer {
             "cuda" => tch::Device::Cuda(0),
             _      => todo!("Unsupported device name"),
         };
-    
+
         let chess = game::ChessTS {
             model: tch::CModule::load_on_device(args.1, device).unwrap(),
             device: device,
@@ -224,18 +227,18 @@ fn main() {
     };
     let mut cursor = root.as_cursor_mut();
 
-    let white = NNPlayer::load((args.device.clone(), args.white_checkpoint, args.rollout, args.cpuct, args.temperature));
+    let white = NNPlayer::load((args.white_device.clone(), args.white_checkpoint, args.rollout, args.cpuct, args.temperature));
 
     match args.black_type {
         Opponent::Stockfish => {
             let black = StockfishPlayer::load((args.stockfish_bin, args.stockfish_level));
             println!("Players loaded.");
-            play_loop(white, black, &mut cursor, &mut state, &mut trace);    
+            play_loop(white, black, &mut cursor, &mut state, &mut trace);
         },
         Opponent::NN => {
-            let black = NNPlayer::load((args.device.clone(), args.black_checkpoint, args.rollout, args.cpuct, args.temperature));
+            let black = NNPlayer::load((args.black_device.clone(), args.black_checkpoint, args.rollout, args.cpuct, args.temperature));
             println!("Players loaded.");
-            play_loop(white, black, &mut cursor, &mut state, &mut trace);    
+            play_loop(white, black, &mut cursor, &mut state, &mut trace);
         }
     }
 
