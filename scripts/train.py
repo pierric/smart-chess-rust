@@ -60,7 +60,12 @@ class ChessLightningModule(L.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.save_hyperparameters()
-        self.model = load_model(checkpoint=config["last_ckpt"], compile=False)
+        self.model = load_model(
+            checkpoint=config["last_ckpt"], 
+            inference=False,
+            ckpt_quantized=True, # since runs/18, checkpoints are quantized models
+            compile=False,
+        )
         self.config = config
 
     def training_step(self, batch, batch_idx):

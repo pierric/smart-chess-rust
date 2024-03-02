@@ -110,17 +110,25 @@ def prepare_quantization(model):
     return torch.ao.quantization.prepare_qat(model.train())
 
 
-def load_model(device=None, checkpoint=None, inference=True, compile=True):
+def load_model(device=None, checkpoint=None, inference=True, compile=True, ckpt_quantized=False):
+    """
+    ckpt_quantized: false < runs/18, and true >= 18
+    compile: not possible for training with quantized model
+    device: can be true for training no matter if quantized or not
+    """
     torch.manual_seed(0)
     
     device = device or "cpu"
 
     model = ChessModule()
 
-    if checkpoint:
+    if checkpoint and not ckpt_quantized:
         _load_ckpt(model, checkpoint)
 
     model = prepare_quantization(model)
+
+    if checkpoint and ckpt_quantized:
+        _load_ckpt(model, checkpoint)
 
     if inference:
         model.eval()
@@ -148,6 +156,7 @@ def export(checkpoint, output):
 
 def export_fp16(checkpoint, output):
     # assuming the model was trained with AMP
+    # TODO I have to mask the quantized logic in the ChessModule too
     model = ChessModule()
     _load_ckpt(model, checkpoint)
     model.cuda().eval()
