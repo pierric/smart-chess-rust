@@ -60,7 +60,12 @@ class ChessLightningModule(L.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.save_hyperparameters()
-        self.model = load_model(checkpoint=config["last_ckpt"])
+        self.model = load_model(
+            checkpoint=config["last_ckpt"], 
+            inference=False,
+            ckpt_quantized=True, # since runs/18, checkpoints are quantized models
+            compile=False,
+        )
         self.config = config
 
     def training_step(self, batch, batch_idx):
@@ -96,9 +101,10 @@ class ChessLightningModule(L.LightningModule):
         }
 
 class ModelCheckpointAtEpochEnd(Callback):
-    def __init__(self, interval):
+    def __init__(self, interval, model_compiled=True):
         super().__init__()
         self.interval = interval
+        self.model_compiled = model_compiled
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch
@@ -108,7 +114,12 @@ class ModelCheckpointAtEpochEnd(Callback):
 
         path = os.path.join(trainer.log_dir, f"epoch-{epoch}.ckpt")
         print("saving checkpoint: ", path)
-        torch.save(pl_module.model._orig_mod.state_dict(), path)
+
+        m = pl_module.model
+        if self.model_compiled:
+            m = m._orig_mod
+        
+        torch.save(m.state_dict(), path)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -120,6 +131,8 @@ def main():
     parser.add_argument("--save-every-k", type=int, default=10)
     args = parser.parse_args()
 
+    compile_model = False
+
     if not args.trace_file:
         print("No trace file specified.")
         return
@@ -127,7 +140,7 @@ def main():
     logger = TensorBoardLogger("tb_logs", name="chess")
     lightning_checkpoints = [
         LearningRateMonitor(logging_interval='step'),
-        ModelCheckpointAtEpochEnd(args.save_every_k),
+        ModelCheckpointAtEpochEnd(args.save_every_k, model_compiled=compile_model),
     ]
 
     dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
@@ -142,6 +155,7 @@ def main():
         last_ckpt = args.last_ckpt,
         save_every_k = args.save_every_k,
         loss_weight = args.loss_weight,
+        compile_model = False,
     )
 
     module = ChessLightningModule(config)
@@ -154,7 +168,8 @@ def main():
     )
     trainer.fit(model=module, train_dataloaders=train_loader)
 
-    torch.save(module.model._orig_mod.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
+    m = module.model._orig_mod if compile_model else module.model
+    torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
 
 
 if __name__ == "__main__":

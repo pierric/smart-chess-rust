@@ -1,17 +1,20 @@
+#!/usr/bin/env python
 import argparse
+import os
 
 import nn
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-s", "--start", type=int, default=9)
-    parser.add_argument("-e", "--end", type=int, default=99)
-    parser.add_argument("--step", type=int, default=10)
+    parser.add_argument("-c", "--checkpoint", nargs="*", action="extend")
     args = parser.parse_args()
 
-    for n in range(args.start, args.end+1, args.step):
-        nn.export(f"epoch-{n}.ckpt", f"epoch-{n}.pt")
+    print(args)
+
+    for path in args.checkpoint:
+        stamm, _ = os.path.splitext(path)
+        nn.export(path, f"{stamm}.pt")
 
 
 if __name__ == "__main__":
