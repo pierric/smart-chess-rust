@@ -1,6 +1,9 @@
 use std::fs::create_dir;
+use std::path::Path;
 use std::cmp::Eq;
+use std::boxed::Box;
 use std::ptr::NonNull;
+use std::borrow::Borrow;
 use clap::{Parser, ValueEnum};
 use trace::Trace;
 use uci::Engine;
@@ -62,8 +65,6 @@ struct Args {
 type MctsCursor = mcts::CursorMut<(Option<chess::Move>, chess::Color)>;
 
 trait Player {
-    type Config;
-    fn load(args: Self::Config) -> Self where Self: Sized;
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize>;
 }
 
@@ -71,15 +72,15 @@ struct StockfishPlayer {
     engine: Engine
 }
 
-impl Player for StockfishPlayer {
-    type Config = (String, i32);
-
-    fn load(args: Self::Config) -> Self {
-        let engine = Engine::new(&args.0).unwrap();
-        engine.set_option("Skill Level", &args.1.to_string()).unwrap();
+impl StockfishPlayer {
+    fn load(stockfish_path: &str, skill_level: i32) -> Self {
+        let engine = Engine::new(stockfish_path).unwrap();
+        engine.set_option("Skill Level", &skill_level.to_string()).unwrap();
         StockfishPlayer{ engine }
     }
+}
 
+impl Player for StockfishPlayer {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
         self.engine.set_position(&state.fen()).unwrap();
         let next = self.engine.bestmove().ok().map(|m| chess::Move::from_uci(&m))?;
@@ -110,36 +111,63 @@ impl Player for StockfishPlayer {
     }
 }
 
-struct NNPlayer {
+struct NNPlayer<G: game::Game<chess::BoardState>> {
     n_rollout: i32,
     cpuct: f32,
     temperature: f32,
-    game: game::ChessTS
+    game: G,
 }
 
-impl Player for NNPlayer {
-    type Config = (String, String, i32, f32, f32);
-
-    fn load(args: Self::Config) -> Self {
-        let device = match args.0.as_str() {
+impl NNPlayer<game::ChessTS> {
+    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
+        let device = match device {
             "cpu"  => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
             _      => todo!("Unsupported device name"),
         };
 
         let chess = game::ChessTS {
-            model: tch::CModule::load_on_device(args.1, device).unwrap(),
+            model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
             device: device,
         };
 
         NNPlayer {
             game: chess,
-            n_rollout: args.2,
-            cpuct: args.3,
-            temperature: args.4,
+            n_rollout: n_rollout,
+            cpuct: cpuct,
+            temperature: temperature,
         }
     }
+}
 
+impl NNPlayer<game::ChessOnnx> {
+    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
+        let device: &[ort::ExecutionProviderDispatch] = & match device {
+            "cpu"  => [ort::CPUExecutionProvider::default().build()],
+            "cuda" => [ort::CUDAExecutionProvider::default().build()],
+            _      => todo!("Unsupported device name"),
+        };
+
+        let session = move || -> ort::Result<ort::Session> {
+            ort::init().with_name("smart-chess").with_execution_providers(device).commit()?;
+            ort::Session::builder()?
+                .with_optimization_level(ort::GraphOptimizationLevel::Level1)?
+                .with_intra_threads(1)?
+                .with_model_from_file(checkpoint)
+        }();
+
+        let chess = game::ChessOnnx {session: session.unwrap()};
+
+        NNPlayer {
+            game: chess,
+            n_rollout: n_rollout,
+            cpuct: cpuct,
+            temperature: temperature,
+        }
+    }
+}
+
+impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
         mcts::mcts(&self.game, cursor.current(), &state, self.n_rollout, Some(self.cpuct));
 
@@ -147,7 +175,7 @@ impl Player for NNPlayer {
         if num_act_vec.len() == 0 {
             return None;
         }
-
+    
         let choice: usize = if self.temperature == 0.0 {
             let max = num_act_vec.iter().max().unwrap();
             let indices: Vec<usize> = num_act_vec.iter().enumerate().filter(|a| a.1 == max).map(|a| a.0).collect();
@@ -158,11 +186,10 @@ impl Player for NNPlayer {
             let weights = WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
             weights.sample(&mut thread_rng())
         };
-
+    
         Some(choice)
     }
 }
-
 
 fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, trace: &mut Trace) {
     let q_value = cursor.current().q_value;
@@ -181,7 +208,14 @@ fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, t
     state.next(&mov);
 }
 
-fn play_loop<W, B>(white: W, black: B, cursor: &mut MctsCursor, state: &mut chess::BoardState, trace: &mut Trace) where W: Player, B: Player {
+fn play_loop<W, B>(
+    white: &W, 
+    black: &B, 
+    cursor: &mut MctsCursor, 
+    state: &mut chess::BoardState, 
+    trace: &mut Trace
+) where W: Player + ?Sized, B: Player + ?Sized {
+
     let mut count = 0;
 
     loop {
@@ -210,6 +244,19 @@ fn play_loop<W, B>(white: W, black: B, cursor: &mut MctsCursor, state: &mut ches
     }
 }
 
+type SomeNNPlayer = dyn Player;
+
+fn load_checkpoint<P: AsRef<Path>>(path: P, device: &str, n_rollout: i32, cpuct: f32, temperature: f32) -> Box<dyn Player> {
+    let path = path.as_ref();
+    match path.extension().and_then(std::ffi::OsStr::to_str) {
+        Some("onnx") => 
+            Box::new(NNPlayer::<game::ChessOnnx>::load(device, path, n_rollout, cpuct, temperature)) as Box<SomeNNPlayer>,
+        Some("pt") =>
+            Box::new(NNPlayer::<game::ChessTS>::load(device, path, n_rollout, cpuct, temperature)) as Box<SomeNNPlayer>,
+        _ => panic!("--white-checkpoint should be a path to onnx or pt file."),
+    }
+}
+
 fn main() {
     unsafe { backtrace_on_stack_overflow::enable() };
     let args = Args::parse();
@@ -227,18 +274,19 @@ fn main() {
     };
     let mut cursor = root.as_cursor_mut();
 
-    let white = NNPlayer::load((args.white_device.clone(), args.white_checkpoint, args.rollout, args.cpuct, args.temperature));
+    let white_checkpoint = Path::new(&args.white_checkpoint);
+    let white = load_checkpoint(white_checkpoint, &args.white_device, args.rollout, args.cpuct, args.temperature);
 
     match args.black_type {
         Opponent::Stockfish => {
-            let black = StockfishPlayer::load((args.stockfish_bin, args.stockfish_level));
+            let black = StockfishPlayer::load(&args.stockfish_bin, args.stockfish_level);
             println!("Players loaded.");
-            play_loop(white, black, &mut cursor, &mut state, &mut trace);
+            play_loop::<SomeNNPlayer, StockfishPlayer>(white.borrow(), &black, &mut cursor, &mut state, &mut trace);
         },
         Opponent::NN => {
-            let black = NNPlayer::load((args.black_device.clone(), args.black_checkpoint, args.rollout, args.cpuct, args.temperature));
+            let black = load_checkpoint(args.black_checkpoint, &args.black_device, args.rollout, args.cpuct, args.temperature);
             println!("Players loaded.");
-            play_loop(white, black, &mut cursor, &mut state, &mut trace);
+            play_loop::<SomeNNPlayer, SomeNNPlayer>(white.borrow(), black.borrow(), &mut cursor, &mut state, &mut trace);
         }
     }
 

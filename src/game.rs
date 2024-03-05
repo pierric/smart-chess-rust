@@ -1,6 +1,6 @@
 use crate::chess::{BoardHistory, BoardState, Color, Move, get_board_from_moves};
 use crate::mcts::Node;
-use ndarray::Array3;
+use ndarray::{Axis, Array3, concatenate};
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
@@ -41,6 +41,10 @@ pub struct Chess {
 pub struct ChessTS {
     pub model: tch::CModule,
     pub device: tch::Device,
+}
+
+pub struct ChessOnnx {
+    pub session: ort::Session,
 }
 
 #[cached(
@@ -311,6 +315,89 @@ impl Game<BoardState> for ChessTS {
         argmax: bool,
     ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
         _chess_ts_predict(self, node, state, argmax)
+    }
+
+    fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
+        node.step.1 == Color::Black
+    }
+}
+
+fn call_onnx_model(
+    session: &ort::Session,
+    boards: Array3<i32>,
+    meta: Array3<i32>,
+    turn: Color,
+    steps: &Vec<Move>,
+) -> ort::Result<(Vec<f32>, f32)> {
+
+    let cat = concatenate![Axis(2), boards, meta].mapv(|v| v as f32);
+    let inp = cat.view().permuted_axes([2, 0, 1]).insert_axis(Axis(0));
+    let out = session.run(ort::inputs!["inp" => inp]?)?;
+
+    let full_distr: ort::Tensor<f32> = out[0].extract_tensor()?;
+    let score: ort::Tensor<f32> = out[1].extract_tensor()?;
+    let score = score.view().get([0, 0]).unwrap() * (if turn == Color::Black { -1. } else { 1. });
+
+
+    // rotate if the next move is black
+    let moves_distr: Vec<f32> = steps
+        .iter()
+        .map(|m| {
+            let mi = if turn == Color::Black {
+                m.rotate().encode() as usize
+            } else {
+                m.encode() as usize
+            };
+            *full_distr.view().get([0, mi]).unwrap()
+        })
+        .collect();
+
+    Ok((moves_distr, score))
+}
+
+#[cached(
+    type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
+    create = "{ SizedCache::with_size(10000) }",
+    convert = r#"{
+        (argmax, state.move_stack(), node.step.1)
+    }"#
+)]
+fn _chess_onnx_predict(chess: &ChessOnnx, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
+    
+    let legal_moves = state.legal_moves();
+
+    if legal_moves.is_empty() {
+        let outcome = match state.outcome().unwrap().winner {
+            None => 0.0,
+            Some(Color::White) => 1.0,
+            Some(Color::Black) => -1.0,
+        };
+        return (Vec::new(), Vec::new(), outcome);
+    }
+
+    let (encoded_boards, encoded_meta) = _encode(node, state);
+
+    let (moves_distr, score) = call_onnx_model(
+        &chess.session,
+        encoded_boards,
+        encoded_meta,
+        node.step.1,
+        &legal_moves,
+    ).unwrap();
+
+    let moves_distr = _post_process_distr(moves_distr, argmax);
+    let next_steps = legal_moves.into_iter().map(|m| (Some(m), !node.step.1)).collect();
+    return (next_steps, moves_distr, score);
+}
+
+impl Game<BoardState> for ChessOnnx {
+    fn predict(
+        &self,
+        node: &Node<<BoardState as State>::Step>,
+        state: &BoardState,
+        argmax: bool,
+    ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
+        _chess_onnx_predict(self, node, state, argmax)
     }
 
     fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
