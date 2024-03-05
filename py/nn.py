@@ -1,4 +1,5 @@
 import torch
+import torch_tensorrt
 
 class ResBlock(torch.nn.Module):
     def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
@@ -152,7 +153,6 @@ def export_ptq(checkpoint, output, *, calib):
 
 def export_fp16(checkpoint, output):
     # assuming the model was trained with AMP
-    # TODO I have to mask the quantized logic in the ChessModule too
     model = ChessModule()
     _load_ckpt(model, checkpoint)
     model.cuda().eval()
@@ -166,7 +166,8 @@ def export_fp16(checkpoint, output):
             model_jit = torch.jit.trace(model, [x])
             model_jit = torch.jit.freeze(model_jit)
 
-    import torch_tensorrt
+    # torch_tensorrt compiled model is 20% faster
+    # though it requires the libtorchtrt.so being loaded beforehand
     compiled = torch_tensorrt.compile(
         model_jit,
         inputs=[torch_tensorrt.Input((1, 119, 8, 8))],
