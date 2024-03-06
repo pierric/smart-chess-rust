@@ -37,6 +37,14 @@ struct Args {
 }
 
 fn main() {
+    unsafe {
+        backtrace_on_stack_overflow::enable();
+        match libloading::Library::new("libtorchtrt.so") {
+            Err(e) => println!("torch_tensorrt not found: {}", e),
+            Ok(_) => (),
+        }
+    }
+
     let args = Args::parse();
 
     assert!(args.rollout_factor.is_none() || args.rollout_num.is_none());

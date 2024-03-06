@@ -1,5 +1,6 @@
 extern crate tch;
 extern crate clap;
+extern crate libloading;
 
 use clap::Parser;
 
@@ -19,7 +20,7 @@ fn main() {
             Err(e) => println!("torch_tensorrt not found: {}", e),
             Ok(_) => (),
         }
-    }    
+    }
     let args = Args::parse();
     let device = match args.device.as_str() {
         "cpu"  => tch::Device::Cpu,
