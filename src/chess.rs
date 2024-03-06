@@ -12,6 +12,13 @@ use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Not;
+use once_cell::sync::Lazy;
+
+static CHESS_MODULE: Lazy<Py<PyModule>> = Lazy::new(|| {
+    Python::with_gil(|py| {
+        py.import("chess").unwrap().into()
+    })
+});
 
 #[derive(Debug)]
 pub enum EncodeError {
@@ -192,8 +199,8 @@ impl IntoPy<Py<PyAny>> for Move {
             None => py.None(),
             Some(pt) => pt.into_py(py),
         };
-        py.import("chess")
-            .and_then(|chess| chess.getattr("Move"))
+        CHESS_MODULE.as_ref(py)
+            .getattr("Move")
             .and_then(|mov| mov.call1((from, to, promotion, drop)))
             .unwrap()
             .into_py(py)
@@ -246,8 +253,8 @@ impl<'a> FromPyObject<'a> for Square {
 
 impl IntoPy<Py<PyAny>> for Square {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        py.import("chess")
-            .and_then(|chess| chess.getattr("square"))
+        CHESS_MODULE.as_ref(py)
+            .getattr("square")
             .and_then(|square| square.call1((self.file, self.rank)))
             .unwrap()
             .into_py(py)
@@ -447,8 +454,8 @@ impl Move {
 
     pub fn from_uci(uci: &str) -> Self {
         Python::with_gil(|py| {
-            py.import("chess")
-              .and_then(|chess| chess.getattr("Move"))
+            CHESS_MODULE.as_ref(py)
+              .getattr("Move")
               .and_then(|cls| cls.getattr("from_uci"))
               .and_then(|func| func.call1((uci,)))
               .and_then(|mov| mov.extract())
@@ -593,9 +600,8 @@ impl Board {
 impl BoardState {
     pub fn new() -> Self {
         Python::with_gil(|py| {
-            let board = py
-                .import("chess")
-                .and_then(|chess| chess.getattr("Board"))
+            let board = CHESS_MODULE.as_ref(py)
+                .getattr("Board")
                 .and_then(|board| board.call0())
                 .unwrap();
             return Self {
