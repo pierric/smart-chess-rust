@@ -258,7 +258,14 @@ fn load_checkpoint<P: AsRef<Path>>(path: P, device: &str, n_rollout: i32, cpuct:
 }
 
 fn main() {
-    unsafe { backtrace_on_stack_overflow::enable() };
+    tracing_subscriber::fmt::init();
+    unsafe {
+        backtrace_on_stack_overflow::enable();
+        match libloading::Library::new("libtorchtrt.so") {
+            Err(e) => println!("torch_tensorrt not found: {}", e),
+            Ok(_) => (),
+        }
+    }
     let args = Args::parse();
     let _ = create_dir("replay");
 

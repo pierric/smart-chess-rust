@@ -1,0 +1,6 @@
+#!/bin/bash
+cargo flamegraph --bin play -- \
+    --white-device cuda --white-checkpoint runs/18/tb_logs/chess/version_5/epoch-7.pt \
+    --black-type nn \
+    --black-device cuda --black-checkpoint runs/18/tb_logs/chess/version_5/epoch-11.pt \
+    -o tmp.json --rollout 300 --temperature 0 --cpuct 2

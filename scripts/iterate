@@ -25,7 +25,7 @@ INFER_ARGS="-d ${DEVICE} --rollout-num 300 -n 200 --temperature 0 --cpuct ${CPUC
 
 IFS='/' read -ra LAST_VER <<< $LAST_VER
 LAST_ITER=${LAST_VER[0]}
-LAST_CKPT="runs/${LAST_ITER}/tb_logs/chess/${LAST_VER[1]}/${LAST_VER[2]}"
+LAST_CKPT="${ROOT}/runs/${LAST_ITER}/tb_logs/chess/${LAST_VER[1]}/${LAST_VER[2]}"
 
 set -ex
 scripts/run_batch $INFER_ARGS -c "${LAST_CKPT}.pt"
@@ -52,9 +52,9 @@ mv $ROOT/*.json $NEXT_BATCH/
 echo "$INFER_ARGS -c $LAST_CKPT" > $NEXT_BATCH.txt
 
 set -ex
-python $ROOT/scripts/train.py -t $NEXT_BATCH/*.json -n 20  -c $ROOT/$LAST_CKPT.ckpt --lr 0.0001 --loss-weight ${LOSS_WEIGHT} --save-every-k 4
+python $ROOT/scripts/train.py -t $NEXT_BATCH/*.json -n 20  -c $LAST_CKPT.ckpt --lr 0.0001 --loss-weight ${LOSS_WEIGHT} --save-every-k 2
 
 LAST_TRAIN_VER=$(ls tb_logs/chess/ | sort -V -r | head -n 1)
 cd "tb_logs/chess/$LAST_TRAIN_VER"
-python $ROOT/scripts/to_torchscript.py -s 9 -e 49
+python $ROOT/scripts/to_torchscript.py -c epoch-*.ckpt --mode amp
 set +ex
