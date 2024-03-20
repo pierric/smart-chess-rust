@@ -1,6 +1,8 @@
 import argparse
 import json
 import os
+from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 import chess
@@ -22,20 +24,60 @@ class ChessLightningModule(L.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.save_hyperparameters()
-        self.model = load_model(
-            checkpoint=config["last_ckpt"], 
-            inference=False,
-            compile=config["compile_model"],
-        )
         self.config = config
+
+        if (transfer_conf := config["transfer"]) is not None:
+            self.teacher = load_model(
+                n_res_blocks=transfer_conf.teacher,
+                checkpoint=config["last_ckpt"],
+                inference=True,
+                compile=config["compile_model"],
+            )
+            self.model = load_model(
+                n_res_blocks=transfer_conf.student,
+                inference=False,
+                compile=config["compile_model"],
+            )
+
+        else:
+            self.model = load_model(
+                checkpoint=config["last_ckpt"],
+                inference=False,
+                compile=config["compile_model"],
+            )
+
+    def compute_loss1(self, dist_pred, dist_gt):
+        return - (dist_pred * dist_gt).sum() / self.config["batch_size"]
+
+    def compute_loss2(self, value_pred, value_gt):
+        return F.mse_loss(value_pred, value_gt, reduction="sum") / self.config["batch_size"]
 
     def training_step(self, batch, batch_idx):
         boards, dist, outcome = batch
-        dist_pred, value_pred = self.model(boards)
 
-        loss1 = - (dist_pred * dist).sum() / self.config["batch_size"]
+        if self.config["transfer"] is None:
+            dist_pred, value_pred = self.model(boards)
+            loss1 = self.compute_loss1(dist_pred, dist)
+            loss2 = self.compute_loss2(value_pred, outcome)
 
-        loss2 = F.mse_loss(value_pred, outcome, reduction="sum") / self.config["batch_size"]
+        else:
+            batch_size_supervised = self.config["batch_size"] // 2
+
+            boards_supervised = boards[:batch_size_supervised]
+            dist_supervised = dist[:batch_size_supervised]
+            outcome_supervised = outcome[:batch_size_supervised]
+
+            boards_unsupervised = boards[batch_size_supervised:]
+            dist_unsupervised, outcome_unsupervised = self.teacher(boards_unsupervised)
+            dist_unsupervised = torch.exp(dist_unsupervised)
+
+            dist_student = torch.cat((dist_supervised, dist_unsupervised), dim=0)
+            outcome_student = torch.cat((outcome_supervised, outcome_unsupervised), dim=0)
+
+            dist_pred, value_pred = self.model(boards)
+            loss1 = self.compute_loss1(dist_pred, dist_student)
+            loss2 = self.compute_loss2(value_pred, outcome_student)
+
         self.log_dict({
             "loss1": loss1,
             "loss2": loss2,
@@ -61,6 +103,7 @@ class ChessLightningModule(L.LightningModule):
            }
         }
 
+
 class ModelCheckpointAtEpochEnd(Callback):
     def __init__(self, interval, model_compiled=True):
         super().__init__()
@@ -79,8 +122,23 @@ class ModelCheckpointAtEpochEnd(Callback):
         m = pl_module.model
         if self.model_compiled:
             m = m._orig_mod
-        
+
         torch.save(m.state_dict(), path)
+
+
+@dataclass
+class TransferConf:
+    student: int
+    teacher: int
+
+    @classmethod
+    def parse(cls, conf: Optional[str]) -> Optional["TransferConf"]:
+        if conf is None:
+            return None
+
+        t, s = conf.split(":")
+        return cls(int(s), int(t))
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -90,6 +148,7 @@ def main():
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=10)
+    parser.add_argument("--transfer", type=str, default=None)
     args = parser.parse_args()
 
     compile_model = True
@@ -117,6 +176,7 @@ def main():
         save_every_k = args.save_every_k,
         loss_weight = args.loss_weight,
         compile_model = compile_model,
+        transfer = TransferConf.parse(args.transfer)
     )
 
     module = ChessLightningModule(config)
