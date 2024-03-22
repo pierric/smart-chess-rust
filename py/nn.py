@@ -1,6 +1,7 @@
 import torch
 import torch_tensorrt
 
+
 class ResBlock(torch.nn.Module):
     def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
         super().__init__()
@@ -24,8 +25,8 @@ class ResBlock(torch.nn.Module):
         return out
 
 
-class ChessModule(torch.nn.Module):
-    N_RES_BLOCKS = 6
+class ChessModuleBase(torch.nn.Module):
+    N_RES_BLOCKS: int
 
     def __init__(self):
         super().__init__()
@@ -70,6 +71,26 @@ class ChessModule(torch.nn.Module):
         return v1, v2
 
 
+class ChessModule6(ChessModuleBase):
+    N_RES_BLOCKS = 6
+
+
+class ChessModule10(ChessModuleBase):
+    N_RES_BLOCKS = 10
+
+
+class ChessModule19(ChessModuleBase):
+    N_RES_BLOCKS = 19
+
+
+def chess_module_with(*, n_res_blocks):
+
+    class DynChessModule(ChessModuleBase):
+        N_RES_BLOCKS = n_res_blocks
+
+    return DynChessModule()
+
+
 def _load_ckpt(model, checkpoint):
     print("..loading checkpoint: ", checkpoint)
     r = model.load_state_dict(torch.load(checkpoint), strict=True)
@@ -79,29 +100,30 @@ def _load_ckpt(model, checkpoint):
         print("unexpected keys", r.unexpected_keys)
 
 
-def load_model(device=None, checkpoint=None, inference=True, compile=True):
+def load_model(*, n_res_blocks=6, device=None, checkpoint=None, inference=True, compile=True):
     """
     compile: not possible for training with quantized model
     device: can be true for training no matter if quantized or not
     """
     torch.manual_seed(0)
-    
+
     device = device or "cpu"
 
-    model = ChessModule()
+    model = chess_module_with(n_res_blocks=n_res_blocks)
 
-    _load_ckpt(model, checkpoint)
+    if checkpoint:
+        _load_ckpt(model, checkpoint)
 
     if inference:
         model.eval()
 
     if compile:
         model = torch.compile(model, mode="reduce-overhead", fullgraph=True)
-    
+
     return model.to(device)
 
 
-def export_ptq(checkpoint, output, *, calib):
+def export_ptq(n_res_blocks, checkpoint, output, *, calib):
     import pytorch_quantization
     import pytorch_quantization.quant_modules
     from itertools import islice
@@ -110,7 +132,7 @@ def export_ptq(checkpoint, output, *, calib):
 
     pytorch_quantization.quant_modules.initialize()
 
-    model = ChessModule()
+    model = chess_module_with(n_res_blocks=n_res_blocks)
     _load_ckpt(model, checkpoint)
 
     for name, module in model.named_modules():
@@ -136,7 +158,7 @@ def export_ptq(checkpoint, output, *, calib):
     with pytorch_quantization.enable_onnx_export():
         # enable_onnx_checker needs to be disabled. See notes below.
         torch.onnx.export(
-            model, 
+            model,
             dummy_input,
             output,
             # verbose=True,
@@ -151,14 +173,14 @@ def export_ptq(checkpoint, output, *, calib):
     # torch.jit.save(model_jit, output)
 
 
-def export_fp16(checkpoint, output):
+def export_fp16(n_res_blocks, checkpoint, output):
     # assuming the model was trained with AMP
-    model = ChessModule()
+    model = chess_module_with(n_res_blocks=n_res_blocks)
     _load_ckpt(model, checkpoint)
     model.cuda().eval()
 
     x = torch.randn(1, 119, 8, 8, dtype=torch.float32).cuda()
-    
+
     with torch.no_grad():
         # cache_enabled is critical to "trace" to the model
         # "script" works fine only for the non-amp model

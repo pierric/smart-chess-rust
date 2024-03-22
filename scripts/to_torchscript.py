@@ -10,6 +10,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--checkpoint", nargs="*", action="extend")
     parser.add_argument("-m", "--mode", choices=["amp", "ptq", "simple"], default="simple")
+    parser.add_argument("-n", "--n-res-blocks", type=int, required=True)
     parser.add_argument("--calib", nargs="*")
     args = parser.parse_args()
 
@@ -25,7 +26,7 @@ def main():
 
     for path in args.checkpoint:
         stamm, _ = os.path.splitext(path)
-        func(path, f"{stamm}{ext}")
+        func(args.n_res_blocks, path, f"{stamm}{ext}")
 
 
 if __name__ == "__main__":

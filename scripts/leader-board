@@ -25,11 +25,15 @@ task() {
 
 export -f task
 
-set -ex
-# export BLACK=''
-# parallel -j3 task {#} 3 version_0 99 -d cuda --rollout=300 --temperature 0 --cpuct 1 ::: $(seq 1 100)
-export BLACK="runs/17/tb_logs/chess/version_3/epoch-9.pt"
-parallel -j2 task {#} 18 version_5 15 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
-parallel -j2 task {#} 18 version_5 17 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
-parallel -j2 task {#} 18 version_5 19 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
-# parallel -j2 task {#} 18 version_5 47 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+#set -ex
+## export BLACK=''
+## parallel -j3 task {#} 3 version_0 99 -d cuda --rollout=300 --temperature 0 --cpuct 1 ::: $(seq 1 100)
+export BLACK="runs/20/tb_logs/chess/version_0/epoch-3.pt"
+parallel -j2 task {#} 21 version_3 1 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+parallel -j2 task {#} 21 version_3 3 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+parallel -j2 task {#} 21 version_3 5 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+parallel -j2 task {#} 21 version_3 7 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+parallel -j2 task {#} 21 version_3 9 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+parallel -j2 task {#} 21 version_3 11 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+parallel -j2 task {#} 21 version_3 13 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
+parallel -j2 task {#} 21 version_3 15 --rollout=300 --temperature 0 --cpuct 2 ::: $(seq 1 100)
