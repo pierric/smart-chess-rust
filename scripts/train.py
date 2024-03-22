@@ -26,21 +26,24 @@ class ChessLightningModule(L.LightningModule):
         self.save_hyperparameters()
         self.config = config
 
-        if (transfer_conf := config["transfer"]) is not None:
+        model_conf = config["model_conf"]
+        if isinstance(model_conf, TransferConf):
             self.teacher = load_model(
-                n_res_blocks=transfer_conf.teacher,
+                n_res_blocks=model_conf.teacher,
                 checkpoint=config["last_ckpt"],
                 inference=True,
                 compile=config["compile_model"],
             )
             self.model = load_model(
-                n_res_blocks=transfer_conf.student,
+                n_res_blocks=model_conf.student,
                 inference=False,
                 compile=config["compile_model"],
             )
 
         else:
+            assert isinstance(model_conf, int)
             self.model = load_model(
+                n_res_blocks=model_conf,
                 checkpoint=config["last_ckpt"],
                 inference=False,
                 compile=config["compile_model"],
@@ -55,7 +58,7 @@ class ChessLightningModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         boards, dist, outcome = batch
 
-        if self.config["transfer"] is None:
+        if not isinstance(self.config["model_conf"], TransferConf):
             dist_pred, value_pred = self.model(boards)
             loss1 = self.compute_loss1(dist_pred, dist)
             loss2 = self.compute_loss2(value_pred, outcome)
@@ -136,8 +139,11 @@ class TransferConf:
         if conf is None:
             return None
 
-        t, s = conf.split(":")
-        return cls(int(s), int(t))
+        ts = conf.split(":")
+        if len(ts) != 2:
+            return None
+
+        return cls(int(ts[1]), int(ts[0]))
 
 
 def main():
@@ -148,7 +154,7 @@ def main():
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=10)
-    parser.add_argument("--transfer", type=str, default=None)
+    parser.add_argument("--model-conf", type=str, default=None)
     args = parser.parse_args()
 
     compile_model = True
@@ -176,7 +182,7 @@ def main():
         save_every_k = args.save_every_k,
         loss_weight = args.loss_weight,
         compile_model = compile_model,
-        transfer = TransferConf.parse(args.transfer)
+        model_conf = TransferConf.parse(args.model_conf) or int(args.model_conf),
     )
 
     module = ChessLightningModule(config)
