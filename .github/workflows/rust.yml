@@ -15,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - uses: actions/setup-python@v5.1.0
+      with:
+        python-version: 3.12
     - uses: Gr1N/setup-poetry@v9
     - uses: actions/checkout@v4
     - name: Install poetry
