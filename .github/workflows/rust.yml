@@ -1,0 +1,26 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: Gr1N/setup-poetry@v9
+    - uses: actions/checkout@v4
+    - name: Install poetry
+      run: poetry install    
+    - name: Build
+      run: poetry run -- cargo build --verbose
+      env:
+        LIBTORCH_USE_PYTORCH: 1
+        LIBTORCH_BYPASS_VERSION_CHECK: 1
