@@ -7,7 +7,7 @@ export PYTHON_SITE_PACKAGES=${ROOT}/venv/lib/python3.11/site-packages
 export LD_LIBRARY_PATH=$PYTHON_SITE_PACKAGES/torch/lib:$PYTHON_SITE_PACKAGES/torch_tensorrt/lib:$PYTHON_SITE_PACKAGES/tensorrt_libs
 
 ARGS=$@
-N=300
+N=500
 
 task() {
     JOB_ID=$1
