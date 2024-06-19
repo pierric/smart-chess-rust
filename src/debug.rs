@@ -1,21 +1,21 @@
-use clap::Parser;
-use std::fs::File;
-use pyo3::prelude::*;
-use std::io::BufReader;
-use std::ptr::NonNull;
+use crate::game::Game;
 use cached::proc_macro::cached;
 use cached::SizedCache;
+use clap::Parser;
+use pyo3::prelude::*;
 use std::collections::hash_map::DefaultHasher;
+use std::fs::File;
 use std::hash::{Hash, Hasher};
-use crate::game::Game;
+use std::io::BufReader;
+use std::ptr::NonNull;
 
-mod mcts;
-mod game;
 mod chess;
-mod underpromotions;
-mod queenmoves;
+mod game;
 mod knightmoves;
+mod mcts;
+mod queenmoves;
 mod trace;
+mod underpromotions;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -43,7 +43,8 @@ struct Args {
 fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
-    let trace: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(reader).unwrap();
+    let trace: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_reader(reader).unwrap();
     let steps = trace["steps"].as_array().unwrap();
 
     let mut state = chess::BoardState::new();
@@ -56,7 +57,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
         children: Vec::new(),
     };
     let mut cursor = root.as_cursor_mut();
-    for idx in 0..(target_step-1) {
+    for idx in 0..(target_step - 1) {
         let mov_uci = steps[idx].as_array().unwrap()[0].as_str().unwrap();
         let mov = chess::Move::from_uci(mov_uci);
         let legal_moves = state.legal_moves();
@@ -64,44 +65,44 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
         let current = cursor.current();
         let turn = current.step.1;
         let parent = NonNull::new(current as *mut _);
-        current.children.extend(
-            legal_moves
-            .into_iter()
-            .map(|m| {
-                Box::new(mcts::Node {
-                    step: (Some(m), !turn),
-                    depth: current.depth + 1,
-                    q_value: 0.,
-                    num_act: 0,
-                    parent: parent,
-                    children: Vec::new(),
-                })
-            }));
+        current.children.extend(legal_moves.into_iter().map(|m| {
+            Box::new(mcts::Node {
+                step: (Some(m), !turn),
+                depth: current.depth + 1,
+                q_value: 0.,
+                num_act: 0,
+                parent: parent,
+                children: Vec::new(),
+            })
+        }));
         cursor.move_children(choice);
         game::State::advance(&mut state, &cursor.current().step);
     }
 
-    let moves = steps[target_step].as_array().unwrap()[2].as_array().unwrap();
+    let moves = steps[target_step].as_array().unwrap()[2]
+        .as_array()
+        .unwrap();
     let current = cursor.current();
     let parent = NonNull::new(current as *mut _);
-    current.children.extend(
-        moves
-        .into_iter()
-        .map(|m| {
-            let spec = m.as_array().unwrap();
-            let uci = spec[0].as_str().unwrap();
-            let mov = chess::Move::from_uci(uci);
-            let num = spec[1].as_i64().unwrap() as i32;
-            let turn = if target_step % 2 == 0 {chess::Color::White} else {chess::Color::Black};
-            Box::new(mcts::Node {
-                step: (Some(mov), turn),
-                depth: current.depth + 1,
-                q_value: 0.,
-                num_act: num,
-                parent: parent,
-                children: Vec::new(),
-            })
-        }));    
+    current.children.extend(moves.into_iter().map(|m| {
+        let spec = m.as_array().unwrap();
+        let uci = spec[0].as_str().unwrap();
+        let mov = chess::Move::from_uci(uci);
+        let num = spec[1].as_i64().unwrap() as i32;
+        let turn = if target_step % 2 == 0 {
+            chess::Color::White
+        } else {
+            chess::Color::Black
+        };
+        Box::new(mcts::Node {
+            step: (Some(mov), turn),
+            depth: current.depth + 1,
+            q_value: 0.,
+            num_act: num,
+            parent: parent,
+            children: Vec::new(),
+        })
+    }));
 
     let mov = mcts::step(&mut cursor, &mut state, 0.0).unwrap().0;
     println!("Move {:?}", mov.map(|m| m.uci()));
@@ -111,7 +112,8 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
 fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Args) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
-    let trace: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(reader).unwrap();
+    let trace: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_reader(reader).unwrap();
     let steps = trace["steps"].as_array().unwrap();
 
     let mut state = chess::BoardState::new();
@@ -132,19 +134,16 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
         let current = cursor.current();
         let turn = current.step.1;
         let parent = NonNull::new(current as *mut _);
-        current.children.extend(
-            legal_moves
-            .into_iter()
-            .map(|m| {
-                Box::new(mcts::Node {
-                    step: (Some(m), !turn),
-                    depth: current.depth + 1,
-                    q_value: 0.,
-                    num_act: 0,
-                    parent: parent,
-                    children: Vec::new(),
-                })
-            }));
+        current.children.extend(legal_moves.into_iter().map(|m| {
+            Box::new(mcts::Node {
+                step: (Some(m), !turn),
+                depth: current.depth + 1,
+                q_value: 0.,
+                num_act: 0,
+                parent: parent,
+                children: Vec::new(),
+            })
+        }));
         cursor.move_children(choice);
         game::State::advance(&mut state, &cursor.current().step);
     }
@@ -157,15 +156,37 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
 
     let (steps, prior, outcome) = chess.predict(cursor.current(), &state, false);
 
-    mcts::mcts(&chess, cursor.current(), &state, args.rollout_num, Some(args.cpuct));
+    mcts::mcts(
+        &chess,
+        cursor.current(),
+        &state,
+        args.rollout_num,
+        Some(args.cpuct),
+    );
 
-    let move_piror: Vec<(String, f32)> =
-        cursor.current().children.iter().zip(prior.iter()).map(|(n,p)| (n.step.0.unwrap().uci(), *p)).collect();
+    let move_piror: Vec<(String, f32)> = cursor
+        .current()
+        .children
+        .iter()
+        .zip(prior.iter())
+        .map(|(n, p)| (n.step.0.unwrap().uci(), *p))
+        .collect();
     println!("{:?}", outcome);
 
-    let children_num_act: Vec<(String, i32, f32, f32)> =
-       cursor.current().children.iter().map(|n| (n.step.0.unwrap().uci(), n.num_act, n.q_value, n.q_value / n.num_act as f32)).collect();
-    
+    let children_num_act: Vec<(String, i32, f32, f32)> = cursor
+        .current()
+        .children
+        .iter()
+        .map(|n| {
+            (
+                n.step.0.unwrap().uci(),
+                n.num_act,
+                n.q_value,
+                n.q_value / n.num_act as f32,
+            )
+        })
+        .collect();
+
     use string_builder::Builder;
     let mut builder = Builder::default();
     for c in children_num_act.iter().zip(move_piror.iter()) {
@@ -191,7 +212,7 @@ fn method1(node: &mcts::Node<(Option<chess::Move>, chess::Color)>, state: &chess
                 let m = dup_state.prev();
                 assert!(m == n.step.0, "sanity check on the last move failed");
                 cur = parent;
-            },
+            }
         }
     }
 }
@@ -218,13 +239,13 @@ fn _get_board(moves: &Vec<chess::Move>) -> chess::Board {
 #[allow(dead_code, unused_variables)]
 fn method2(node: &mcts::Node<(Option<chess::Move>, chess::Color)>, state: &chess::BoardState) {
     let mut moves = state.move_stack();
-    
+
     let mut history = chess::BoardHistory::new(8);
 
     while moves.len() > 0 {
         history.push_back(&_get_board(&moves));
         moves.pop();
-    }  
+    }
 }
 
 #[allow(dead_code)]
@@ -232,7 +253,8 @@ fn bench_to_board() {
     let filename = "eval/trace7.json";
     let file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
-    let trace: serde_json::Map<String, serde_json::Value> = serde_json::from_reader(reader).unwrap();
+    let trace: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_reader(reader).unwrap();
     let steps = trace["steps"].as_array().unwrap();
 
     let mut turn = chess::Color::White;
@@ -255,15 +277,14 @@ fn bench_to_board() {
         let mov = chess::Move::from_uci(mov_uci);
         let current = cursor.current();
         let parent = NonNull::new(current as *mut _);
-        current.children.push(
-            Box::new(mcts::Node {
-                step: (Some(mov), !turn),
-                depth: current.depth + 1,
-                q_value: 0.,
-                num_act: 0,
-                parent: parent,
-                children: Vec::new()
-            }));
+        current.children.push(Box::new(mcts::Node {
+            step: (Some(mov), !turn),
+            depth: current.depth + 1,
+            q_value: 0.,
+            num_act: 0,
+            parent: parent,
+            children: Vec::new(),
+        }));
         turn = !turn;
 
         // method1(cursor.current(), &state);
@@ -308,7 +329,7 @@ fn main() {
 
             debug_trace(chess, trace.0, trace.1, &args);
             // debug_step(chess, "runs/86/trace8.json", 9);
-        },
-        Err(_) => todo!()
+        }
+        Err(_) => todo!(),
     }
 }

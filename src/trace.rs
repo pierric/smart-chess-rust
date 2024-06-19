@@ -1,6 +1,6 @@
+use crate::chess;
 use std::fs::File;
 use std::io::Write;
-use crate::chess;
 
 pub struct Trace {
     steps: Vec<(Option<chess::Move>, f32, Vec<(chess::Move, i32, f32)>)>,
@@ -10,7 +10,10 @@ pub struct Trace {
 #[allow(dead_code)]
 impl Trace {
     pub fn new() -> Self {
-        Trace { steps: Vec::new(), outcome: None }
+        Trace {
+            steps: Vec::new(),
+            outcome: None,
+        }
     }
 
     pub fn save(&self, filename: &str) {
@@ -24,7 +27,12 @@ impl Trace {
     }
 
     #[allow(dead_code)]
-    pub fn push(&mut self, mov: Option<chess::Move>, q_value: f32, children: Vec<(chess::Move, i32, f32)>) {
+    pub fn push(
+        &mut self,
+        mov: Option<chess::Move>,
+        q_value: f32,
+        children: Vec<(chess::Move, i32, f32)>,
+    ) {
         self.steps.push((mov, q_value, children));
     }
 

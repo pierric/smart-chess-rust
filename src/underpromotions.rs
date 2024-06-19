@@ -32,32 +32,32 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
     let move_type = _TYPE_OFFSET + underpromotion_type;
     return Ok(mov.from.rank * 8 * 73 + mov.from.file * 73 + move_type);
 
-//     Python::with_gil(|py| {
-//         let np = match py.import("numpy") {
-//             Ok(np) => np,
-//             Err(e) => return Err(EncodeError::PythonError(e)),
-//         };
-//         let locals = [
-//             ("np", np.to_object(py)),
-//             ("direction_idx", direction_idx.to_object(py)),
-//             ("promotion_idx", promotion_idx.to_object(py)),
-//             ("_TYPE_OFFSET", _TYPE_OFFSET.to_object(py)),
-//             ("from_rank", mov.from.rank.to_object(py)),
-//             ("from_file", mov.from.file.to_object(py)),
-//         ]
-//         .into_py_dict(py);
+    //     Python::with_gil(|py| {
+    //         let np = match py.import("numpy") {
+    //             Ok(np) => np,
+    //             Err(e) => return Err(EncodeError::PythonError(e)),
+    //         };
+    //         let locals = [
+    //             ("np", np.to_object(py)),
+    //             ("direction_idx", direction_idx.to_object(py)),
+    //             ("promotion_idx", promotion_idx.to_object(py)),
+    //             ("_TYPE_OFFSET", _TYPE_OFFSET.to_object(py)),
+    //             ("from_rank", mov.from.rank.to_object(py)),
+    //             ("from_file", mov.from.file.to_object(py)),
+    //         ]
+    //         .into_py_dict(py);
 
-//         let code = r#"
-// underpromotion_type = np.ravel_multi_index((direction_idx, promotion_idx), (3, 3))
-// move_type = _TYPE_OFFSET + underpromotion_type;
-// ret = np.ravel_multi_index((from_rank, from_file, move_type), (8, 8, 73))"#;
+    //         let code = r#"
+    // underpromotion_type = np.ravel_multi_index((direction_idx, promotion_idx), (3, 3))
+    // move_type = _TYPE_OFFSET + underpromotion_type;
+    // ret = np.ravel_multi_index((from_rank, from_file, move_type), (8, 8, 73))"#;
 
-//         py.run(code, None, Some(locals)).unwrap();
-//         locals
-//             .get_item("ret")
-//             .unwrap()
-//             .unwrap()
-//             .extract()
-//             .map_err(EncodeError::PythonError)
-//     })
+    //         py.run(code, None, Some(locals)).unwrap();
+    //         locals
+    //             .get_item("ret")
+    //             .unwrap()
+    //             .unwrap()
+    //             .extract()
+    //             .map_err(EncodeError::PythonError)
+    //     })
 }

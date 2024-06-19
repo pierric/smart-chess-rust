@@ -5,8 +5,8 @@ mod game;
 mod knightmoves;
 mod mcts;
 mod queenmoves;
-mod underpromotions;
 mod trace;
+mod underpromotions;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -50,9 +50,9 @@ fn main() {
     assert!(args.rollout_factor.is_none() || args.rollout_num.is_none());
 
     let device = match args.device.as_str() {
-        "cpu"  => tch::Device::Cpu,
+        "cpu" => tch::Device::Cpu,
         "cuda" => tch::Device::Cuda(0),
-        _      => todo!("Unsupported device name"),
+        _ => todo!("Unsupported device name"),
     };
 
     let chess = game::ChessTS {
@@ -75,7 +75,7 @@ fn main() {
     let mut outcome = None;
 
     for i in 0..args.num_steps {
-        let temperature = if i < 8 {1.0} else {args.temperature};
+        let temperature = if i < 8 { 1.0 } else { args.temperature };
 
         let rollout = match (args.rollout_factor, args.rollout_num) {
             (Some(v), None) => i32::max(200, (state.legal_moves().len() as f32 * v) as i32),
@@ -83,7 +83,13 @@ fn main() {
             (None, None) => 300,
             (Some(_), Some(_)) => panic!("both --rollout_factor and --rollout_num are specified."),
         };
-        println!("Rollout {} Temp {} Cpuct {} Turn {}", rollout, temperature, args.cpuct, cursor.current().step.1);
+        println!(
+            "Rollout {} Temp {} Cpuct {} Turn {}",
+            rollout,
+            temperature,
+            args.cpuct,
+            cursor.current().step.1
+        );
         mcts::mcts(&chess, cursor.current(), &state, rollout, Some(args.cpuct));
 
         let node = cursor.current();
@@ -93,7 +99,6 @@ fn main() {
             .iter()
             .map(|c| (c.step.0.unwrap(), c.num_act, c.q_value))
             .collect();
-
 
         match mcts::step(&mut cursor, &mut state, temperature) {
             None => {

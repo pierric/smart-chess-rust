@@ -19,7 +19,9 @@ fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
 }
 
 #[pyfunction]
-fn encode_steps(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
+fn encode_steps(
+    steps: Vec<(chess::Move, Vec<u32>)>,
+) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
     let mut history = chess::BoardHistory::new(game::LOOKBACK);
     let mut board_state = chess::BoardState::new();
 
@@ -77,7 +79,9 @@ fn encode_steps(steps: Vec<(chess::Move, Vec<u32>)>) -> PyResult<Vec<(PyObject, 
 #[pyfunction]
 fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, PyObject)> {
     Python::with_gil(|py| {
-        let board = if view == chess::Color::White {board} else {
+        let board = if view == chess::Color::White {
+            board
+        } else {
             board.rotate()
         };
         let encoded_boards: &PyArray3<i32> = PyArray3::from_array(py, &board.encode_pieces());

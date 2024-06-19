@@ -1,11 +1,11 @@
 use crate::game::{Game, State};
+use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
 use rand_distr::{Dirichlet, Distribution};
 use recursive_reference::*;
 use std::iter::Sum;
-use std::ptr::NonNull;
 use std::ops::Deref;
-use rand::distributions::WeightedIndex;
+use std::ptr::NonNull;
 
 pub struct Node<T> {
     pub step: T,
@@ -33,8 +33,7 @@ fn uct(
 
     // plus 0.01 to ensure that exploration factor isn't zero
     // in case q and n_act are zero, the choice will fully based on the prior
-    let exploration: f32 =
-        (sqrt_total_num_vis + 0.01) / (1. + move_n_act as f32) * cpuct * prior;
+    let exploration: f32 = (sqrt_total_num_vis + 0.01) / (1. + move_n_act as f32) * cpuct * prior;
     return average_award + exploration;
 }
 
@@ -50,7 +49,10 @@ where
         .map(|p| p.0);
 }
 
-fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32) where T: std::fmt::Debug {
+fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32)
+where
+    T: std::fmt::Debug,
+{
     // let mut last: String = String::from("");
     // use string_builder::Builder;
     // let mut builder = Builder::default();
@@ -109,12 +111,11 @@ where
             let prior_rand: Vec<f32> = match (root, noise) {
                 (false, _) => prior,
                 (_, None) => prior,
-                (_, Some(noise)) => {
-                    prior.iter()
+                (_, Some(noise)) => prior
+                    .iter()
                     .zip(noise.iter())
                     .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
-                    .collect()
-                }
+                    .collect(),
             };
             let sqrt_total_num_vis =
                 f32::sqrt(i32::sum(ptr.children.iter().map(|c| c.num_act)) as f32);
@@ -143,13 +144,8 @@ where
     }
 }
 
-pub fn mcts<G, S>(
-    game: &G,
-    node: &mut Node<S::Step>,
-    state: &S,
-    n_rollout: i32,
-    cpuct: Option<f32>,
-) where
+pub fn mcts<G, S>(game: &G, node: &mut Node<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>)
+where
     G: Game<S>,
     S: State,
     S::Step: std::fmt::Debug,
@@ -158,7 +154,9 @@ pub fn mcts<G, S>(
     let cpuct = cpuct.unwrap_or(default_cpuct);
 
     let num_legal_moves = state.legal_moves().len();
-    let noise = if node.depth >= 4 || num_legal_moves < 2 {None} else {
+    let noise = if node.depth >= 4 || num_legal_moves < 2 {
+        None
+    } else {
         let dirichlet = Dirichlet::<f64>::new_with_size(0.03, num_legal_moves).unwrap();
         Some(dirichlet.sample(&mut thread_rng()))
     };
@@ -187,25 +185,36 @@ pub fn mcts<G, S>(
 }
 
 #[allow(dead_code)]
-pub fn step<S>(
-    cursor: &mut CursorMut<S::Step>,
-    state: &mut S,
-    temp: f32,
-) -> Option<S::Step> where S: State, S::Step: Copy {
-    let num_act_vec: Vec<_> = cursor.current().children.iter().map(|a| a.num_act).collect();
+pub fn step<S>(cursor: &mut CursorMut<S::Step>, state: &mut S, temp: f32) -> Option<S::Step>
+where
+    S: State,
+    S::Step: Copy,
+{
+    let num_act_vec: Vec<_> = cursor
+        .current()
+        .children
+        .iter()
+        .map(|a| a.num_act)
+        .collect();
 
     if num_act_vec.len() == 0 {
-        return None
+        return None;
     }
 
     let choice: usize = if temp == 0.0 {
         let max = num_act_vec.iter().max().unwrap();
-        let indices: Vec<usize> = num_act_vec.iter().enumerate().filter(|a| a.1 == max).map(|a| a.0).collect();
+        let indices: Vec<usize> = num_act_vec
+            .iter()
+            .enumerate()
+            .filter(|a| a.1 == max)
+            .map(|a| a.0)
+            .collect();
         let n: usize = thread_rng().gen_range(0..indices.len());
         indices[n]
     } else {
         let power = 1.0 / temp;
-        let weights = WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
+        let weights =
+            WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
         weights.sample(&mut thread_rng())
     };
 
