@@ -1,3 +1,5 @@
+[![Rust](https://github.com/pierric/smart-chess-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/pierric/smart-chess-rust/actions/workflows/rust.yml)
+
 # Build
 ## Python part
 ```
