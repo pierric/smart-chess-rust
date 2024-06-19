@@ -1,14 +1,14 @@
-use crate::chess::{BoardHistory, BoardState, Color, Move, get_board_from_moves};
+use crate::chess::{get_board_from_moves, BoardHistory, BoardState, Color, Move};
 use crate::mcts::Node;
-use ndarray::{Axis, Array3, concatenate};
+use cached::proc_macro::cached;
+use cached::SizedCache;
+use ndarray::{concatenate, Array3, Axis};
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
-use std::ptr::NonNull;
-use cached::proc_macro::cached;
-use cached::SizedCache;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::ptr::NonNull;
 
 pub const LOOKBACK: usize = 8;
 
@@ -145,7 +145,7 @@ fn _encode(node: &Node<(Option<Move>, Color)>, state: &BoardState) -> (Array3<i3
                 let m = move_stack.pop();
                 assert!(m == n.step.0, "sanity check on the last move failed");
                 cur = parent;
-            },
+            }
         }
     }
 
@@ -155,7 +155,7 @@ fn _encode(node: &Node<(Option<Move>, Color)>, state: &BoardState) -> (Array3<i3
     (encoded_boards, encoded_meta)
 }
 
-fn _post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32>{
+fn _post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32> {
     if argmax {
         let i: usize = distr
             .iter()
@@ -184,8 +184,12 @@ fn _post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32>{
         (argmax, state.move_stack(), node.step.1)
     }"#
 )]
-fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
-    
+fn _chess_predict(
+    chess: &Chess,
+    node: &Node<(Option<Move>, Color)>,
+    state: &BoardState,
+    argmax: bool,
+) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
     let legal_moves = state.legal_moves();
 
     if legal_moves.is_empty() {
@@ -209,7 +213,10 @@ fn _chess_predict(chess: &Chess, node: &Node<(Option<Move>, Color)>, state: &Boa
     );
 
     let moves_distr = _post_process_distr(moves_distr, argmax);
-    let next_steps = legal_moves.into_iter().map(|m| (Some(m), !node.step.1)).collect();
+    let next_steps = legal_moves
+        .into_iter()
+        .map(|m| (Some(m), !node.step.1))
+        .collect();
     return (next_steps, moves_distr, score);
 }
 
@@ -236,11 +243,16 @@ fn call_ts_model(
     turn: Color,
     steps: &Vec<Move>,
 ) -> (Vec<f32>, f32) {
-
     use tch::Tensor;
 
-    let encoded_boards = Tensor::try_from(boards).unwrap().to_device_(device, tch::Kind::Float, true, false);
-    let encoded_meta = Tensor::try_from(meta).unwrap().to_device_(device, tch::Kind::Float, true, false);
+    let encoded_boards =
+        Tensor::try_from(boards)
+            .unwrap()
+            .to_device_(device, tch::Kind::Float, true, false);
+    let encoded_meta =
+        Tensor::try_from(meta)
+            .unwrap()
+            .to_device_(device, tch::Kind::Float, true, false);
 
     let inp = Tensor::cat(&[encoded_boards, encoded_meta], 2)
         .permute([2, 0, 1])
@@ -252,7 +264,6 @@ fn call_ts_model(
     // This must be in sync with that in training script
     let score = score.to_dtype(tch::Kind::Float, true, false);
     let score = f32::try_from(&score).unwrap() * (if turn == Color::Black { -1. } else { 1. });
-
 
     // rotate if the next move is black
     let encoded_moves: Vec<i64> = steps
@@ -278,8 +289,12 @@ fn call_ts_model(
         (argmax, state.move_stack(), node.step.1)
     }"#
 )]
-fn _chess_ts_predict(chess: &ChessTS, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
-    
+fn _chess_ts_predict(
+    chess: &ChessTS,
+    node: &Node<(Option<Move>, Color)>,
+    state: &BoardState,
+    argmax: bool,
+) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
     let legal_moves = state.legal_moves();
 
     if legal_moves.is_empty() {
@@ -303,7 +318,10 @@ fn _chess_ts_predict(chess: &ChessTS, node: &Node<(Option<Move>, Color)>, state:
     );
 
     let moves_distr = _post_process_distr(moves_distr, argmax);
-    let next_steps = legal_moves.into_iter().map(|m| (Some(m), !node.step.1)).collect();
+    let next_steps = legal_moves
+        .into_iter()
+        .map(|m| (Some(m), !node.step.1))
+        .collect();
     return (next_steps, moves_distr, score);
 }
 
@@ -329,7 +347,6 @@ fn call_onnx_model(
     turn: Color,
     steps: &Vec<Move>,
 ) -> ort::Result<(Vec<f32>, f32)> {
-
     let cat = concatenate![Axis(2), boards, meta].mapv(|v| v as f32);
     let inp = cat.view().permuted_axes([2, 0, 1]).insert_axis(Axis(0));
     let out = session.run(ort::inputs!["inp" => inp]?)?;
@@ -337,7 +354,6 @@ fn call_onnx_model(
     let full_distr: ort::Tensor<f32> = out[0].extract_tensor()?;
     let score: ort::Tensor<f32> = out[1].extract_tensor()?;
     let score = score.view().get([0, 0]).unwrap() * (if turn == Color::Black { -1. } else { 1. });
-
 
     // rotate if the next move is black
     let moves_distr: Vec<f32> = steps
@@ -362,8 +378,12 @@ fn call_onnx_model(
         (argmax, state.move_stack(), node.step.1)
     }"#
 )]
-fn _chess_onnx_predict(chess: &ChessOnnx, node: &Node<(Option<Move>, Color)>, state: &BoardState, argmax: bool) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
-    
+fn _chess_onnx_predict(
+    chess: &ChessOnnx,
+    node: &Node<(Option<Move>, Color)>,
+    state: &BoardState,
+    argmax: bool,
+) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
     let legal_moves = state.legal_moves();
 
     if legal_moves.is_empty() {
@@ -383,10 +403,14 @@ fn _chess_onnx_predict(chess: &ChessOnnx, node: &Node<(Option<Move>, Color)>, st
         encoded_meta,
         node.step.1,
         &legal_moves,
-    ).unwrap();
+    )
+    .unwrap();
 
     let moves_distr = _post_process_distr(moves_distr, argmax);
-    let next_steps = legal_moves.into_iter().map(|m| (Some(m), !node.step.1)).collect();
+    let next_steps = legal_moves
+        .into_iter()
+        .map(|m| (Some(m), !node.step.1))
+        .collect();
     return (next_steps, moves_distr, score);
 }
 

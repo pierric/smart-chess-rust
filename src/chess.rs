@@ -1,24 +1,21 @@
 use crate::{game, knightmoves, queenmoves, underpromotions};
+use cached::proc_macro::cached;
+use cached::SizedCache;
 use ndarray::{s, Array3, Ix3};
+use once_cell::sync::Lazy;
 use pyo3::conversion::IntoPy;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-use cached::proc_macro::cached;
-use cached::SizedCache;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::Not;
-use once_cell::sync::Lazy;
 
-static CHESS_MODULE: Lazy<Py<PyModule>> = Lazy::new(|| {
-    Python::with_gil(|py| {
-        py.import("chess").unwrap().into()
-    })
-});
+static CHESS_MODULE: Lazy<Py<PyModule>> =
+    Lazy::new(|| Python::with_gil(|py| py.import("chess").unwrap().into()));
 
 #[derive(Debug)]
 pub enum EncodeError {
@@ -199,7 +196,8 @@ impl IntoPy<Py<PyAny>> for Move {
             None => py.None(),
             Some(pt) => pt.into_py(py),
         };
-        CHESS_MODULE.as_ref(py)
+        CHESS_MODULE
+            .as_ref(py)
             .getattr("Move")
             .and_then(|mov| mov.call1((from, to, promotion, drop)))
             .unwrap()
@@ -219,17 +217,17 @@ impl Serialize for Move {
 impl<'a> Deserialize<'a> for Move {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'a>
+        D: Deserializer<'a>,
     {
         struct MoveVisitor;
 
         impl<'a> serde::de::Visitor<'a> for MoveVisitor {
             type Value = Move;
-        
+
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("a move")
             }
-        
+
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
@@ -253,7 +251,8 @@ impl<'a> FromPyObject<'a> for Square {
 
 impl IntoPy<Py<PyAny>> for Square {
     fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        CHESS_MODULE.as_ref(py)
+        CHESS_MODULE
+            .as_ref(py)
             .getattr("square")
             .and_then(|square| square.call1((self.file, self.rank)))
             .unwrap()
@@ -454,12 +453,13 @@ impl Move {
 
     pub fn from_uci(uci: &str) -> Self {
         Python::with_gil(|py| {
-            CHESS_MODULE.as_ref(py)
-              .getattr("Move")
-              .and_then(|cls| cls.getattr("from_uci"))
-              .and_then(|func| func.call1((uci,)))
-              .and_then(|mov| mov.extract())
-              .unwrap()
+            CHESS_MODULE
+                .as_ref(py)
+                .getattr("Move")
+                .and_then(|cls| cls.getattr("from_uci"))
+                .and_then(|func| func.call1((uci,)))
+                .and_then(|mov| mov.extract())
+                .unwrap()
         })
     }
 
@@ -482,7 +482,7 @@ impl Move {
             .unwrap()
     }
 }
- 
+
 #[cached(
     type = "SizedCache<u64, Array3<i32>>",
     create = "{ SizedCache::with_size(5000) }",
@@ -493,7 +493,7 @@ impl Move {
         board.repetition3.hash(&mut hasher);
         hasher.finish()
     }"#
-)] 
+)]
 fn _encode_pieces(board: &Board) -> Array3<i32> {
     let mut array = Array3::<i32>::zeros((8, 8, 14));
 
@@ -575,7 +575,7 @@ impl Board {
             has_queenside_castling_rights: swap(self.has_queenside_castling_rights),
         };
     }
- 
+
     pub fn encode_pieces(&self) -> Array3<i32> {
         _encode_pieces(self)
     }
@@ -583,7 +583,8 @@ impl Board {
     pub fn encode_meta(&self) -> Array3<i32> {
         let mut meta = Array3::<i32>::zeros((8, 8, 7));
         meta.slice_mut(s![.., .., 0]).fill(self.turn as i32);
-        meta.slice_mut(s![.., .., 1]).fill(self.fullmove_number as i32);
+        meta.slice_mut(s![.., .., 1])
+            .fill(self.fullmove_number as i32);
         meta.slice_mut(s![.., .., 2])
             .fill(self.has_kingside_castling_rights.0 as i32);
         meta.slice_mut(s![.., .., 3])
@@ -592,7 +593,8 @@ impl Board {
             .fill(self.has_kingside_castling_rights.1 as i32);
         meta.slice_mut(s![.., .., 5])
             .fill(self.has_queenside_castling_rights.1 as i32);
-        meta.slice_mut(s![.., .., 6]).fill(self.halfmove_clock as i32);
+        meta.slice_mut(s![.., .., 6])
+            .fill(self.halfmove_clock as i32);
         return meta;
     }
 }
@@ -600,7 +602,8 @@ impl Board {
 impl BoardState {
     pub fn new() -> Self {
         Python::with_gil(|py| {
-            let board = CHESS_MODULE.as_ref(py)
+            let board = CHESS_MODULE
+                .as_ref(py)
                 .getattr("Board")
                 .and_then(|board| board.call0())
                 .unwrap();
@@ -617,7 +620,10 @@ impl BoardState {
     #[allow(dead_code)]
     pub fn fen(&self) -> String {
         Python::with_gil(|py| {
-            let res = self.python_object.call_method0(py, intern!(py, "fen")).unwrap();
+            let res = self
+                .python_object
+                .call_method0(py, intern!(py, "fen"))
+                .unwrap();
             res.extract(py).unwrap()
         })
     }
@@ -640,7 +646,8 @@ impl BoardState {
             self.python_object
                 .call_method0(py, intern!(py, "pop"))
                 .and_then(|o| o.extract(py))
-        }).ok()
+        })
+        .ok()
     }
 
     pub fn next(&mut self, mov: &Move) {
@@ -654,14 +661,21 @@ impl BoardState {
     pub fn legal_moves(&self) -> Vec<Move> {
         Python::with_gil(|py| {
             let locals = [("board", &self.python_object)].into_py_dict(py);
-            py.eval("list(board.legal_moves)", None, Some(&locals)).unwrap().extract().unwrap()
+            py.eval("list(board.legal_moves)", None, Some(&locals))
+                .unwrap()
+                .extract()
+                .unwrap()
         })
     }
 
     pub fn move_stack(&self) -> Vec<Move> {
         Python::with_gil(|py| {
-            self.python_object.getattr(py, intern!(py, "move_stack")).unwrap().extract(py).unwrap()
-        })        
+            self.python_object
+                .getattr(py, intern!(py, "move_stack"))
+                .unwrap()
+                .extract(py)
+                .unwrap()
+        })
     }
 }
 
@@ -686,8 +700,18 @@ impl game::State for BoardState {
     fn legal_moves(&self) -> Vec<Self::Step> {
         Python::with_gil(|py| {
             let locals = [("board", &self.python_object)].into_py_dict(py);
-            let mov: Vec<Move> = py.eval("list(board.legal_moves)", None, Some(&locals)).unwrap().extract().unwrap();
-            let turn: Color = self.python_object.getattr(py, intern!(py, "turn")).unwrap().extract::<i32>(py).unwrap().into();
+            let mov: Vec<Move> = py
+                .eval("list(board.legal_moves)", None, Some(&locals))
+                .unwrap()
+                .extract()
+                .unwrap();
+            let turn: Color = self
+                .python_object
+                .getattr(py, intern!(py, "turn"))
+                .unwrap()
+                .extract::<i32>(py)
+                .unwrap()
+                .into();
             mov.into_iter().map(|m| (Some(m), !turn)).collect()
         })
     }
@@ -714,7 +738,7 @@ impl BoardHistory {
         if self.history.len() < self.size {
             self.history.push_back(board.clone());
         }
-    }    
+    }
 
     pub fn view(&self, rotate: bool) -> Array3<i32> {
         let mut full = Array3::<i32>::zeros((8, 8, 14 * self.size));
@@ -727,7 +751,7 @@ impl BoardHistory {
                 board.encode_pieces()
             };
             let base = 14 * idx;
-            full.slice_mut(s![.., .., base..base+14]).assign(&array);
+            full.slice_mut(s![.., .., base..base + 14]).assign(&array);
         }
         full
     }

@@ -19,14 +19,14 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
 
     let direction_idx = match (delta0.signum(), delta1.signum()) {
         (-1, -1) => 5,
-        (-1, 0)  => 4,
-        (-1, 1)  => 3,
-        (0, -1)  => 6,
-        (0, 1)   => 2,
-        (1, -1)  => 7,
-        (1, 0)   => 0,
-        (1, 1)   => 1,
-        _ => todo!("impossible direction for a queue move")
+        (-1, 0) => 4,
+        (-1, 1) => 3,
+        (0, -1) => 6,
+        (0, 1) => 2,
+        (1, -1) => 7,
+        (1, 0) => 0,
+        (1, 1) => 1,
+        _ => todo!("impossible direction for a queue move"),
     };
     let move_type = direction_idx * 7 + distance_idx;
     let action = mov.from.rank * 8 * 73 + mov.from.file * 73 + move_type;
