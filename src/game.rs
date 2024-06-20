@@ -9,6 +9,7 @@ use pyo3::types::{IntoPyDict, PyString};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ptr::NonNull;
+use std::ops::Index;
 
 pub const LOOKBACK: usize = 8;
 
@@ -351,20 +352,20 @@ fn call_onnx_model(
     let inp = cat.view().permuted_axes([2, 0, 1]).insert_axis(Axis(0));
     let out = session.run(ort::inputs!["inp" => inp]?)?;
 
-    let full_distr: ort::Tensor<f32> = out[0].extract_tensor()?;
-    let score: ort::Tensor<f32> = out[1].extract_tensor()?;
-    let score = score.view().get([0, 0]).unwrap() * (if turn == Color::Black { -1. } else { 1. });
+    let full_distr: ort::TensorRef<f32> = out[0].downcast_ref()?;
+    let score: ort::TensorRef<f32> = out[1].downcast_ref()?;
+    let score = score.index([0, 0]) * (if turn == Color::Black { -1. } else { 1. });
 
     // rotate if the next move is black
     let moves_distr: Vec<f32> = steps
         .iter()
         .map(|m| {
             let mi = if turn == Color::Black {
-                m.rotate().encode() as usize
+                m.rotate().encode() as i64
             } else {
-                m.encode() as usize
+                m.encode() as i64
             };
-            *full_distr.view().get([0, mi]).unwrap()
+            *full_distr.index([0, mi])
         })
         .collect();
 

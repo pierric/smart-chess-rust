@@ -161,7 +161,7 @@ impl NNPlayer<game::ChessOnnx> {
             ort::Session::builder()?
                 .with_optimization_level(ort::GraphOptimizationLevel::Level1)?
                 .with_intra_threads(1)?
-                .with_model_from_file(checkpoint)
+                .commit_from_file(checkpoint)
         }();
 
         let chess = game::ChessOnnx {
