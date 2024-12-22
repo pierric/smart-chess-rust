@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [lib]
-name = "encoder"
+name = "smartchess"
 path = "src/lib.rs"
 crate-type = ["cdylib"]
 
@@ -34,9 +34,9 @@ backtrace-on-stack-overflow = "0.3.0"
 cached = "0.46.1"
 uci = "0.1.3"
 string-builder = "0.2.0"
-tch = "0.16.0"
-ort = "2.0.0-alpha.4"
-tracing-subscriber = { version = "0.3", features = [ "env-filter", "fmt" ] }
+tch = "0.18.1"
+# ort = "2.0.0-alpha.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 libloading = "0.8"
 once_cell = "1.19.0"
 
