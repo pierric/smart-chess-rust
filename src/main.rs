@@ -11,7 +11,7 @@ mod underpromotions;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = String::from("cuda"))]
     device: String,
 
     #[arg(short, long, default_missing_value = None)]
@@ -39,10 +39,11 @@ struct Args {
 fn main() {
     unsafe {
         backtrace_on_stack_overflow::enable();
-        match libloading::Library::new("libtorchtrt.so") {
-            Err(e) => println!("torch_tensorrt not found: {}", e),
-            Ok(_) => (),
-        }
+        // for nvidia only. skipping as using rocm
+        //match libloading::Library::new("libtorchtrt.so") {
+        //    Err(e) => println!("torch_tensorrt not found: {}", e),
+        //    Ok(_) => (),
+        //}
     }
 
     let args = Args::parse();

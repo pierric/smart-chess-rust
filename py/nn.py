@@ -1,5 +1,5 @@
 import torch
-import torch_tensorrt
+# import torch_tensorrt
 
 
 class ResBlock(torch.nn.Module):
@@ -33,12 +33,16 @@ class ChessModuleBase(torch.nn.Module):
 
         # 8 boards (14 channels each) + meta (7 channels)
         self.conv_block = torch.nn.Sequential(
-            torch.nn.Conv2d(14 * 8 + 7, 256, kernel_size=3, stride=1, padding=1, bias=False),
+            torch.nn.Conv2d(
+                14 * 8 + 7, 256, kernel_size=3, stride=1, padding=1, bias=False
+            ),
             torch.nn.BatchNorm2d(256),
             torch.nn.ReLU(inplace=False),
         )
 
-        self.res_blocks = torch.nn.ModuleList([ResBlock() for _ in range(self.N_RES_BLOCKS)] )
+        self.res_blocks = torch.nn.ModuleList(
+            [ResBlock() for _ in range(self.N_RES_BLOCKS)]
+        )
 
         self.value_head = torch.nn.Sequential(
             torch.nn.Conv2d(256, 1, kernel_size=1, bias=False),
@@ -55,7 +59,7 @@ class ChessModuleBase(torch.nn.Module):
             torch.nn.BatchNorm2d(128),
             torch.nn.ReLU(inplace=False),
             torch.nn.Flatten(),
-            torch.nn.Linear(8*8*128, 8*8*73),
+            torch.nn.Linear(8 * 8 * 128, 8 * 8 * 73),
         )
 
     def forward(self, inp):
@@ -84,7 +88,6 @@ class ChessModule19(ChessModuleBase):
 
 
 def chess_module_with(*, n_res_blocks):
-
     class DynChessModule(ChessModuleBase):
         N_RES_BLOCKS = n_res_blocks
 
@@ -100,7 +103,9 @@ def _load_ckpt(model, checkpoint):
         print("unexpected keys", r.unexpected_keys)
 
 
-def load_model(*, n_res_blocks=6, device=None, checkpoint=None, inference=True, compile=True):
+def load_model(
+    *, n_res_blocks=19, device=None, checkpoint=None, inference=True, compile=True
+):
     """
     compile: not possible for training with quantized model
     device: can be true for training no matter if quantized or not
@@ -136,24 +141,26 @@ def export_ptq(n_res_blocks, checkpoint, output, *, calib):
     _load_ckpt(model, checkpoint)
 
     for name, module in model.named_modules():
-        if name.endswith('_quantizer'):
+        if name.endswith("_quantizer"):
             module.enable_calib()
             module.disable_quant()
 
     dss = ConcatDataset([ChessDataset(trace_file) for trace_file in calib])
-    train_loader = DataLoader(dss, num_workers=4, batch_size=1, shuffle=True, drop_last=True)
+    train_loader = DataLoader(
+        dss, num_workers=4, batch_size=1, shuffle=True, drop_last=True
+    )
     for example in islice(train_loader, 50):
         model(example[0])
 
     for name, module in model.named_modules():
-        if name.endswith('_quantizer'):
+        if name.endswith("_quantizer"):
             module.load_calib_amax()
             module.disable_calib()
             module.enable_quant()
 
     model = model.cuda()
 
-    dummy_input = torch.randn(1, 119, 8, 8, dtype=torch.float32, device='cuda')
+    dummy_input = torch.randn(1, 119, 8, 8, dtype=torch.float32, device="cuda")
 
     with pytorch_quantization.enable_onnx_export():
         # enable_onnx_checker needs to be disabled. See notes below.
@@ -173,10 +180,11 @@ def export_ptq(n_res_blocks, checkpoint, output, *, calib):
     # torch.jit.save(model_jit, output)
 
 
-def export_fp16(n_res_blocks, checkpoint, output):
+def export_fp16(n_res_blocks=19, *, checkpoint=None, output):
     # assuming the model was trained with AMP
     model = chess_module_with(n_res_blocks=n_res_blocks)
-    _load_ckpt(model, checkpoint)
+    if checkpoint:
+        _load_ckpt(model, checkpoint)
     model.cuda().eval()
 
     x = torch.randn(1, 119, 8, 8, dtype=torch.float32).cuda()
@@ -184,17 +192,19 @@ def export_fp16(n_res_blocks, checkpoint, output):
     with torch.no_grad():
         # cache_enabled is critical to "trace" to the model
         # "script" works fine only for the non-amp model
-        with torch.autocast(device_type="cuda", dtype=torch.float16, cache_enabled=False):
+        with torch.autocast(
+            device_type="cuda", dtype=torch.float16, cache_enabled=False
+        ):
             model_jit = torch.jit.trace(model, [x])
             model_jit = torch.jit.freeze(model_jit)
 
     # torch_tensorrt compiled model is 20% faster
     # though it requires the libtorchtrt.so being loaded beforehand
-    compiled = torch_tensorrt.compile(
-        model_jit,
-        inputs=[torch_tensorrt.Input((1, 119, 8, 8))],
-        enabled_precisions=[torch.float, torch.half],
-        ir="torchscript",
-    )
+    # compiled = torch_tensorrt.compile(
+    #     model_jit,
+    #     inputs=[torch_tensorrt.Input((1, 119, 8, 8))],
+    #     enabled_precisions=[torch.float, torch.half],
+    #     ir="torchscript",
+    # )
 
-    torch.jit.save(compiled, output)
+    torch.jit.save(model_jit, output)

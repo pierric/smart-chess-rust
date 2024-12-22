@@ -94,7 +94,7 @@ fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, 
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
 #[pymodule]
-fn libencoder(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn libsmartchess(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encode_board, m)?)?;
     m.add_function(wrap_pyfunction!(encode_move, m)?)?;
     m.add_function(wrap_pyfunction!(encode_steps, m)?)?;

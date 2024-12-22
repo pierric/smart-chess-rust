@@ -145,6 +145,7 @@ impl NNPlayer<game::ChessTS> {
     }
 }
 
+/*
 impl NNPlayer<game::ChessOnnx> {
     fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
         let device: &[ort::ExecutionProviderDispatch] = &match device {
@@ -176,6 +177,7 @@ impl NNPlayer<game::ChessOnnx> {
         }
     }
 }
+*/
 
 impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
@@ -285,6 +287,7 @@ fn load_checkpoint<P: AsRef<Path>>(
 ) -> Box<dyn Player> {
     let path = path.as_ref();
     match path.extension().and_then(std::ffi::OsStr::to_str) {
+        /*
         Some("onnx") => Box::new(NNPlayer::<game::ChessOnnx>::load(
             device,
             path,
@@ -292,6 +295,7 @@ fn load_checkpoint<P: AsRef<Path>>(
             cpuct,
             temperature,
         )) as Box<SomeNNPlayer>,
+        */
         Some("pt") => Box::new(NNPlayer::<game::ChessTS>::load(
             device,
             path,
@@ -307,10 +311,10 @@ fn main() {
     tracing_subscriber::fmt::init();
     unsafe {
         backtrace_on_stack_overflow::enable();
-        match libloading::Library::new("libtorchtrt.so") {
-            Err(e) => println!("torch_tensorrt not found: {}", e),
-            Ok(_) => (),
-        }
+        //match libloading::Library::new("libtorchtrt.so") {
+        //    Err(e) => println!("torch_tensorrt not found: {}", e),
+        //    Ok(_) => (),
+        //}
     }
     let args = Args::parse();
     let _ = create_dir("replay");

@@ -2,14 +2,13 @@ use crate::chess::{get_board_from_moves, BoardHistory, BoardState, Color, Move};
 use crate::mcts::Node;
 use cached::proc_macro::cached;
 use cached::SizedCache;
-use ndarray::{concatenate, Array3, Axis};
+use ndarray::Array3;
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ptr::NonNull;
-use std::ops::Index;
 
 pub const LOOKBACK: usize = 8;
 
@@ -44,9 +43,11 @@ pub struct ChessTS {
     pub device: tch::Device,
 }
 
+/*
 pub struct ChessOnnx {
     pub session: ort::Session,
 }
+*/
 
 #[cached(
     type = "SizedCache<(String, Color, u64), (Vec<f32>, f32)>",
@@ -341,6 +342,7 @@ impl Game<BoardState> for ChessTS {
     }
 }
 
+/*
 fn call_onnx_model(
     session: &ort::Session,
     boards: Array3<i32>,
@@ -429,3 +431,4 @@ impl Game<BoardState> for ChessOnnx {
         node.step.1 == Color::Black
     }
 }
+*/
