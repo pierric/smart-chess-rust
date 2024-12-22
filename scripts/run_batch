@@ -1,19 +1,14 @@
-set -eu
-export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
-export PYTHONPATH="$ROOT/py"
-export LIBTORCH_USE_PYTORCH=1
-export LIBTORCH_BYPASS_VERSION_CHECK=1
-export PYTHON_SITE_PACKAGES=${ROOT}/venv/lib/python3.11/site-packages
-export LD_LIBRARY_PATH=$PYTHON_SITE_PACKAGES/torch/lib:$PYTHON_SITE_PACKAGES/torch_tensorrt/lib:$PYTHON_SITE_PACKAGES/tensorrt_libs
+set -eux
+source .env
 
 ARGS=$@
-N=300
+N=90
 
 task() {
     JOB_ID=$1
     shift
     echo "Run index" ${JOB_ID} .. $PWD .. $@
-    cargo r --bin smartchess --release -- -t "trace${JOB_ID}.json" $@ > "/tmp/chess_log_${JOB_ID}"
+    cargo r --bin smartchess -- -t "trace${JOB_ID}.json" $@ > "/tmp/chess_log_${JOB_ID}"
 }
 
 export -f task

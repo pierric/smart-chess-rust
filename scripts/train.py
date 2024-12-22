@@ -13,8 +13,7 @@ import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, Callback
 
-import libencoder
-from dataset import ChessDataset
+from dataset import ChessDataset, ValidationDataset
 from nn import load_model
 
 BATCH_SIZE = 128
@@ -50,10 +49,13 @@ class ChessLightningModule(L.LightningModule):
             )
 
     def compute_loss1(self, dist_pred, dist_gt):
-        return - (dist_pred * dist_gt).sum() / self.config["batch_size"]
+        return -(dist_pred * dist_gt).sum() / self.config["batch_size"]
 
     def compute_loss2(self, value_pred, value_gt):
-        return F.mse_loss(value_pred, value_gt, reduction="sum") / self.config["batch_size"]
+        return (
+            F.mse_loss(value_pred, value_gt, reduction="sum")
+            / self.config["batch_size"]
+        )
 
     def training_step(self, batch, batch_idx):
         boards, dist, outcome = batch
@@ -75,35 +77,51 @@ class ChessLightningModule(L.LightningModule):
             dist_unsupervised = torch.exp(dist_unsupervised)
 
             dist_student = torch.cat((dist_supervised, dist_unsupervised), dim=0)
-            outcome_student = torch.cat((outcome_supervised, outcome_unsupervised), dim=0)
+            outcome_student = torch.cat(
+                (outcome_supervised, outcome_unsupervised), dim=0
+            )
 
             dist_pred, value_pred = self.model(boards)
             loss1 = self.compute_loss1(dist_pred, dist_student)
             loss2 = self.compute_loss2(value_pred, outcome_student)
 
-        self.log_dict({
-            "loss1": loss1,
-            "loss2": loss2,
-        })
+        self.log_dict(
+            {
+                "loss1": loss1,
+                "loss2": loss2,
+            }
+        )
         return loss1 + self.config["loss_weight"] * loss2
 
+    def validation_step(self, batch, batch_idx):
+        boards, dist, outcome = batch
+        dist_pred, value_pred = self.model(boards)
+        loss1 = self.compute_loss1(dist_pred, dist)
+        loss2 = self.compute_loss2(value_pred, outcome)
+        loss = loss1 + self.config["loss_weight"] * loss2
+        self.log_dict({"val_loss1": loss1, "val_loss2": loss2, "val_loss": loss})
+        return loss
+
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.config["lr"], weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=self.config["lr"], weight_decay=1e-4
+        )
         # return optimizer
 
         from torch.optim.lr_scheduler import OneCycleLR
+
         scheduler = OneCycleLR(
-           optimizer=optimizer,
-           max_lr=self.config["lr"],
-           total_steps=self.config["steps_per_epoch"] * self.config["epochs"]
+            optimizer=optimizer,
+            max_lr=self.config["lr"],
+            total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
         )
         return {
-           "optimizer": optimizer,
-           "lr_scheduler": {
-               "scheduler": scheduler,
-               "interval": "step",
-               "frequency": 1,
-           }
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "frequency": 1,
+            },
         }
 
 
@@ -147,14 +165,16 @@ class TransferConf:
 
 
 def main():
+    torch.set_float32_matmul_precision("medium")
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--trace-file", nargs="*", action="extend")
-    parser.add_argument("-n", "--epochs", type=int, default=100)
+    parser.add_argument("-n", "--epochs", type=int, default=10)
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=10)
     parser.add_argument("--model-conf", type=str, default=None)
+    parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
     args = parser.parse_args()
 
     compile_model = True
@@ -165,24 +185,35 @@ def main():
 
     logger = TensorBoardLogger("tb_logs", name="chess")
     lightning_checkpoints = [
-        LearningRateMonitor(logging_interval='step'),
+        LearningRateMonitor(logging_interval="step"),
         ModelCheckpointAtEpochEnd(args.save_every_k, model_compiled=compile_model),
     ]
 
     dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
-    train_loader = DataLoader(dss, num_workers=4, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+
+    train_loader = DataLoader(
+        dss, num_workers=4, batch_size=BATCH_SIZE, shuffle=True, drop_last=True
+    )
+
+    val_loader = DataLoader(
+        ValidationDataset(args.val_data),
+        num_workers=4,
+        batch_size=8,
+        shuffle=False,
+        drop_last=True,
+    )
 
     config = dict(
-        batch_size = BATCH_SIZE,
-        epochs = args.epochs,
-        steps_per_epoch = len(train_loader),
-        lr = args.lr,
-        trace_files = args.trace_file,
-        last_ckpt = args.last_ckpt,
-        save_every_k = args.save_every_k,
-        loss_weight = args.loss_weight,
-        compile_model = compile_model,
-        model_conf = TransferConf.parse(args.model_conf) or int(args.model_conf),
+        batch_size=BATCH_SIZE,
+        epochs=args.epochs,
+        steps_per_epoch=len(train_loader),
+        lr=args.lr,
+        trace_files=args.trace_file,
+        last_ckpt=args.last_ckpt,
+        save_every_k=args.save_every_k,
+        loss_weight=args.loss_weight,
+        compile_model=compile_model,
+        model_conf=TransferConf.parse(args.model_conf) or int(args.model_conf),
     )
 
     module = ChessLightningModule(config)
@@ -191,10 +222,12 @@ def main():
         logger=logger,
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
-        log_every_n_steps=50,
+        log_every_n_steps=5,
         precision="16-mixed",
     )
-    trainer.fit(model=module, train_dataloaders=train_loader)
+    trainer.fit(
+        model=module, train_dataloaders=train_loader, val_dataloaders=val_loader
+    )
 
     m = module.model._orig_mod if compile_model else module.model
     torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
