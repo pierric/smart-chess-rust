@@ -49,13 +49,12 @@ class ChessLightningModule(L.LightningModule):
             )
 
     def compute_loss1(self, dist_pred, dist_gt):
-        return -(dist_pred * dist_gt).sum() / self.config["batch_size"]
+        batch_size = dist_gt.shape[0]
+        return -(dist_pred * dist_gt).sum() / batch_size
 
     def compute_loss2(self, value_pred, value_gt):
-        return (
-            F.mse_loss(value_pred, value_gt, reduction="sum")
-            / self.config["batch_size"]
-        )
+        batch_size = value_gt.shape[0]
+        return F.mse_loss(value_pred, value_gt, reduction="sum") / batch_size
 
     def training_step(self, batch, batch_idx):
         boards, dist, outcome = batch
@@ -89,6 +88,7 @@ class ChessLightningModule(L.LightningModule):
             {
                 "loss1": loss1,
                 "loss2": loss2,
+                "loss": loss1 + self.config["loss_weight"] * loss2,
             }
         )
         return loss1 + self.config["loss_weight"] * loss2
@@ -126,18 +126,24 @@ class ChessLightningModule(L.LightningModule):
 
 
 class ModelCheckpointAtEpochEnd(Callback):
-    def __init__(self, interval, model_compiled=True):
+    def __init__(self, start, end, interval, model_compiled=True):
         super().__init__()
+        self.start = start
+        self.end = end
         self.interval = interval
         self.model_compiled = model_compiled
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch
+        callback_metrics = trainer.callback_metrics
 
-        if (epoch + 1) % self.interval != 0:
+        if epoch < self.start or epoch >= self.end or (epoch + 1) % self.interval != 0:
             return
 
-        path = os.path.join(trainer.log_dir, f"epoch-{epoch}.ckpt")
+        path = os.path.join(
+            trainer.log_dir,
+            f"epoch:{epoch}-val_loss:{callback_metrics['val_loss']:0.3f}.ckpt",
+        )
         print("saving checkpoint: ", path)
 
         m = pl_module.model
@@ -173,6 +179,8 @@ def main():
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=10)
+    parser.add_argument("--save-start", type=int, default=10)
+    parser.add_argument("--save-end", type=int, default=100)
     parser.add_argument("--model-conf", type=str, default=None)
     parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
     args = parser.parse_args()
@@ -186,7 +194,12 @@ def main():
     logger = TensorBoardLogger("tb_logs", name="chess")
     lightning_checkpoints = [
         LearningRateMonitor(logging_interval="step"),
-        ModelCheckpointAtEpochEnd(args.save_every_k, model_compiled=compile_model),
+        ModelCheckpointAtEpochEnd(
+            args.save_start,
+            args.save_end,
+            args.save_every_k,
+            model_compiled=compile_model,
+        ),
     ]
 
     dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
@@ -210,6 +223,8 @@ def main():
         lr=args.lr,
         trace_files=args.trace_file,
         last_ckpt=args.last_ckpt,
+        save_start=args.save_start,
+        save_end=args.save_end,
         save_every_k=args.save_every_k,
         loss_weight=args.loss_weight,
         compile_model=compile_model,
@@ -229,8 +244,8 @@ def main():
         model=module, train_dataloaders=train_loader, val_dataloaders=val_loader
     )
 
-    m = module.model._orig_mod if compile_model else module.model
-    torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
+    # m = module.model._orig_mod if compile_model else module.model
+    # torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
 
 
 if __name__ == "__main__":
