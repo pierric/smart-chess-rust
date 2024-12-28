@@ -20,7 +20,7 @@ struct Args {
     #[arg(long, default_missing_value = None)]
     rollout_num: Option<i32>,
 
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(short, long, default_value_t = 100)]
     num_steps: i32,
 
     #[arg(short, long, default_value_t = String::from("trace.json"))]

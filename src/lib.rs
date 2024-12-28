@@ -20,28 +20,34 @@ fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
 
 #[pyfunction]
 fn encode_steps(
-    steps: Vec<(chess::Move, Vec<u32>)>,
+    steps: Vec<(chess::Move, Vec<u32>)>, apply_mirror: bool
 ) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
     let mut history = chess::BoardHistory::new(game::LOOKBACK);
     let mut board_state = chess::BoardState::new();
 
     let mut ret = Vec::new();
 
+    let flip_color = chess::Color::Black;
+
     Python::with_gil(|py| {
         for (mov, num_act) in steps.iter() {
-            let step = board_state.to_board();
+            let step = if apply_mirror {
+                board_state.to_board().rotate()
+            } else {
+                board_state.to_board()
+            };
             let legal_moves = board_state.legal_moves();
             // latter boards stay at the front
             history.push_front(&step);
 
-            let encoded_boards = history.view(step.turn == chess::Color::Black);
+            let encoded_boards = history.view(step.turn == flip_color);
             let encoded_meta = step.encode_meta();
 
             // rotate the move if black
             let moves_indices: Vec<i32> = legal_moves
                 .iter()
                 .map(|m| {
-                    if step.turn == chess::Color::Black {
+                    if step.turn == flip_color {
                         m.rotate().encode()
                     } else {
                         m.encode()
