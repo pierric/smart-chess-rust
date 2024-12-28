@@ -1,6 +1,6 @@
 use crate::{game, knightmoves, queenmoves, underpromotions};
 use cached::proc_macro::cached;
-use cached::SizedCache;
+use cached::{SizedCache, Cached};
 use ndarray::{s, Array3, Ix3};
 use once_cell::sync::Lazy;
 use pyo3::conversion::IntoPy;
@@ -13,6 +13,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Not;
+use std::cmp;
 
 static CHESS_MODULE: Lazy<Py<PyModule>> =
     Lazy::new(|| Python::with_gil(|py| py.import("chess").unwrap().into()));
@@ -527,23 +528,48 @@ fn _encode_pieces(board: &Board) -> Array3<i32> {
     return array;
 }
 
-#[cached(
-    type = "SizedCache<u64, Board>",
-    create = "{ SizedCache::with_size(5000) }",
-    convert = r#"{
-        let mut hasher = DefaultHasher::new();
-        moves.hash(&mut hasher);
-        hasher.finish()
-    }"#
-)]
+static mut GET_BOARD_CACHE: Lazy<SizedCache<u64, Board>> =
+    Lazy::new(|| SizedCache::with_size(10000));
+
+#[allow(static_mut_refs)]
 pub fn get_board_from_moves(moves: &Vec<Move>) -> Board {
-    let mut state = BoardState::new();
+    let mut hasher = DefaultHasher::new();
+    moves.hash(&mut hasher);
+    let len_start = cmp::max(moves.len(), 8) - 8;
+    let full_key = hasher.finish();
 
-    for m in moves.iter() {
-        state.next(m);
+    unsafe {
+        match GET_BOARD_CACHE.cache_get(&full_key) {
+            Some(v) => v.clone(),
+            None => {
+                let mut vec = Vec::with_capacity(moves.len());
+                let mut state = BoardState::new();
+                let mut len = 0;
+
+                for m in moves.iter() {
+                    state.next(m);
+                    vec.push(m);
+
+                    len += 1;
+                    if len >= len_start {
+
+                        let mut hasher = DefaultHasher::new();
+                        vec.hash(&mut hasher);
+                        let mkey = hasher.finish();
+
+                        GET_BOARD_CACHE.cache_get_or_set_with(
+                            mkey, || state.to_board()
+                        );
+                    }
+                }
+
+                match GET_BOARD_CACHE.cache_get(&full_key) {
+                    Some(v) => v.clone(),
+                    None => state.to_board(),
+                }
+            }
+        }
     }
-
-    return state.to_board();
 }
 
 impl Board {
