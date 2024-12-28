@@ -27,9 +27,9 @@ def _get_outcome(res):
 def _prepare(boards, meta, dist, outcome):
     inp = np.concatenate((boards, meta), axis=-1).astype(np.float32)
     inp = inp.transpose((2, 0, 1))
-    turn = meta[0, 0, 0]
-    if turn == 1:
-        outcome = -outcome
+    # turn = meta[0, 0, 0]
+    # if turn == 0:
+    #    outcome = -outcome
     return (
         torch.from_numpy(inp),
         torch.from_numpy(dist),
@@ -38,7 +38,7 @@ def _prepare(boards, meta, dist, outcome):
 
 
 class ChessDataset(Dataset):
-    def __init__(self, trace_file):
+    def __init__(self, trace_file, apply_mirror=False):
         with open(trace_file, "r") as f:
             trace = json.load(f)
 
@@ -47,7 +47,7 @@ class ChessDataset(Dataset):
             (chess.Move.from_uci(step[0]), [c[1] for c in step[2]])
             for step in trace["steps"]
         ]
-        self.steps = libsmartchess.encode_steps(steps)
+        self.steps = libsmartchess.encode_steps(steps, apply_mirror)
 
     def __len__(self):
         return len(self.steps)
@@ -90,7 +90,7 @@ class ValidationDataset(Dataset):
             num_acts[legal_moves.index(node.move)] = 1
             steps.append((move, num_acts))
 
-        return libsmartchess.encode_steps(steps)
+        return libsmartchess.encode_steps(steps, False)
 
     def __len__(self):
         return self.total_steps[-1]
