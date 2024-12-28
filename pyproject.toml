@@ -7,7 +7,7 @@ url = "https://download.pytorch.org/whl/rocm6.2"
 priority = "explicit"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "~3.12"
 chess = "1.11.1"
 lightning = { version = "2.5.0", extras = ["extra"] }
 matplotlib = "3.8.2"
@@ -17,10 +17,12 @@ sympy = "^1.12"
 tensorboard = "^2.15.1"
 #tensorrt = "^10.0"
 torch = { version = "~2.5", source = "pytorch-rocm" }
-torchvision = { version = "~0.18", source = "pytorch-rocm" }
+torchvision = { version = "~0.20", source = "pytorch-rocm" }
 pytorch-triton-rocm = { version = "~3.1.0", source = "pytorch-rocm" }
 #torch-tensorrt = { url = "https://download.pytorch.org/whl/cu121/torch_tensorrt-2.3.0%2Bcu121-cp312-cp312-linux_x86_64.whl" }
 pandas = "^2.2.3"
+ipython = "^8.31.0"
+jupyterlab = "^4.3.4"
 
 [build-system]
 requires = ["poetry-core"]
