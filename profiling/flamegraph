@@ -1,6 +1,10 @@
 #!/bin/bash
+
+BLACK_CKPT="runs/004/tb_logs/chess/version_0/epoch:11-val_loss:3.341.pt"
+WHITE_CKPT="runs/004/tb_logs/chess/version_0/epoch:11-val_loss:3.341.pt"
+
 cargo flamegraph --bin play -- \
-    --white-device cuda --white-checkpoint runs/18/tb_logs/chess/version_5/epoch-7.pt \
-    --black-type nn \
-    --black-device cuda --black-checkpoint runs/18/tb_logs/chess/version_5/epoch-11.pt \
-    -o tmp.json --rollout 300 --temperature 0 --cpuct 2
+  --white-device cuda --white-checkpoint $WHITE_CKPT \
+  --black-type nn \
+  --black-device cuda --black-checkpoint $BLACK_CKPT \
+  -o tmp.json --rollout 300 --temperature 0 --cpuct 2.5

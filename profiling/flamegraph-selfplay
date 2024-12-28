@@ -1,0 +1,3 @@
+cargo flamegraph --bin smartchess -- -t trace.json \
+  -c 'runs/004/tb_logs/chess/version_0/epoch:11-val_loss:3.341.pt' \
+  --temperature 1.0 --cpuct 2.5 --rollout-num 200
