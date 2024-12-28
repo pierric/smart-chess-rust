@@ -128,7 +128,7 @@ def load_model(
     return model.to(device)
 
 
-def export_ptq(n_res_blocks, checkpoint, output, *, calib):
+def export_ptq(n_res_blocks, *, checkpoint, output, calib):
     import pytorch_quantization
     import pytorch_quantization.quant_modules
     from itertools import islice
@@ -182,10 +182,13 @@ def export_ptq(n_res_blocks, checkpoint, output, *, calib):
 
 def export_fp16(n_res_blocks=19, *, checkpoint=None, output):
     # assuming the model was trained with AMP
-    model = chess_module_with(n_res_blocks=n_res_blocks)
-    if checkpoint:
-        _load_ckpt(model, checkpoint)
-    model.cuda().eval()
+    model = load_model(
+        n_res_blocks=n_res_blocks,
+        device="cuda",
+        checkpoint=checkpoint,
+        inference=True,
+        compile=False,
+    )
 
     x = torch.randn(1, 119, 8, 8, dtype=torch.float32).cuda()
 
@@ -196,7 +199,10 @@ def export_fp16(n_res_blocks=19, *, checkpoint=None, output):
             device_type="cuda", dtype=torch.float16, cache_enabled=False
         ):
             model_jit = torch.jit.trace(model, [x])
-            model_jit = torch.jit.freeze(model_jit)
+            # model_jit = torch.jit.freeze(model_jit)
+            model_jit = torch.jit.optimize_for_inference(model_jit)
+
+    # model_jit = torch.compile(model_jit, mode="reduce-overhead", fullgraph=True)
 
     # torch_tensorrt compiled model is 20% faster
     # though it requires the libtorchtrt.so being loaded beforehand
