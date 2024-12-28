@@ -232,8 +232,12 @@ impl Game<BoardState> for Chess {
         _chess_predict(self, node, state, argmax)
     }
 
-    fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
-        node.step.1 == Color::Black
+    fn reverse_q(&self, _node: &Node<<BoardState as State>::Step>) -> bool {
+        // dont't reverse the reward, because the chess model is expected
+        // to return the reward for the white player.
+        //
+        //node.step.1 == Color::Black
+        return false;
     }
 }
 
