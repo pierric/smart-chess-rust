@@ -3,6 +3,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Optional
+from multiprocessing import Pool
 
 import numpy as np
 import chess
@@ -16,7 +17,7 @@ from lightning.pytorch.callbacks import LearningRateMonitor, Callback
 from dataset import ChessDataset, ValidationDataset
 from nn import load_model
 
-BATCH_SIZE = 128
+BATCH_SIZE = 1024
 
 
 class ChessLightningModule(L.LightningModule):
@@ -202,7 +203,10 @@ def main():
         ),
     ]
 
-    dss = ConcatDataset([ChessDataset(f) for f in args.trace_file])
+    with Pool(12) as p:
+        dss = p.map(ChessDataset, args.trace_file)
+    # [ChessDataset(f) for f in args.trace_file]
+    dss = ConcatDataset(dss)
 
     train_loader = DataLoader(
         dss, num_workers=4, batch_size=BATCH_SIZE, shuffle=True, drop_last=True
