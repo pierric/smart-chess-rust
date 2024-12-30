@@ -154,10 +154,10 @@ where
     let cpuct = cpuct.unwrap_or(default_cpuct);
 
     let num_legal_moves = state.legal_moves().len();
-    let noise = if node.depth >= 4 || num_legal_moves < 2 {
+    let noise = if /*node.depth >= 4 || */ num_legal_moves < 2 {
         None
     } else {
-        let dirichlet = Dirichlet::<f64>::new_with_size(0.03, num_legal_moves).unwrap();
+        let dirichlet = Dirichlet::<f64>::new_with_size(0.3, num_legal_moves).unwrap();
         Some(dirichlet.sample(&mut thread_rng()))
     };
 
