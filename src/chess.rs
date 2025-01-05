@@ -529,7 +529,7 @@ fn _encode_pieces(board: &Board) -> Array3<i32> {
 }
 
 static mut GET_BOARD_CACHE: Lazy<SizedCache<u64, Board>> =
-    Lazy::new(|| SizedCache::with_size(10000));
+    Lazy::new(|| SizedCache::with_size(50000));
 
 #[allow(static_mut_refs)]
 pub fn get_board_from_moves(moves: &Vec<Move>) -> Board {
@@ -563,10 +563,9 @@ pub fn get_board_from_moves(moves: &Vec<Move>) -> Board {
                     }
                 }
 
-                match GET_BOARD_CACHE.cache_get(&full_key) {
-                    Some(v) => v.clone(),
-                    None => state.to_board(),
-                }
+                GET_BOARD_CACHE.cache_get_or_set_with(
+                    full_key, || state.to_board()
+                ).clone()
             }
         }
     }
