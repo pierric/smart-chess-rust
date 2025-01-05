@@ -21,7 +21,10 @@ def _get_outcome(res):
     if res["winner"] == "White":
         return 1.0
 
-    return -1.0
+    if res["winner"] == "Black":
+        return -1.0
+
+    raise RuntimeError(f"Unknown outcome: {res}")
 
 
 def _prepare(boards, meta, dist, outcome):
@@ -43,9 +46,18 @@ class ChessDataset(Dataset):
             trace = json.load(f)
 
         self.outcome = _get_outcome(trace["outcome"])
+
+        # steps in the trace files are [(move, score, [sibling moves])]
+        # libsmartchess.encode_steps will use the [slibing_moves] to
+        # encode a distribution of possibile moves of the current state
+        # ** AND THEN ** make the move.
+        trace_steps = trace["steps"]
         steps = [
-            (chess.Move.from_uci(step[0]), [c[1] for c in step[2]])
-            for step in trace["steps"]
+            (
+                chess.Move.from_uci(step[0]),
+                [(chess.Move.from_uci(c[0]), c[1]) for c in step[2]],
+            )
+            for step in trace_steps
         ]
         self.steps = libsmartchess.encode_steps(steps, apply_mirror)
 
@@ -75,20 +87,19 @@ class ValidationDataset(Dataset):
         self.outcomes = df.winner.apply(lambda s: outcome[s])
 
     def _encode(self, pgn):
-        game = chess.pgn.read_game(io.StringIO(pgn))
-        node = game.next()
+        node = chess.pgn.read_game(io.StringIO(pgn))
         steps = []
 
         while node:
-            move = node.move
-            legal_moves = list(node.board().legal_moves)
-            num_acts = [0] * len(legal_moves)
+            num_acts = {m: 0 for m in node.board().legal_moves}
+
             node = node.next()
             if node is None:
                 break
 
-            num_acts[legal_moves.index(node.move)] = 1
-            steps.append((move, num_acts))
+            move = node.move
+            num_acts[node.move] = 1
+            steps.append((move, list(num_acts.items())))
 
         return libsmartchess.encode_steps(steps, False)
 
