@@ -3,19 +3,25 @@
 total=0
 white=0
 black=0
+DEST_PATH="${DEST_PATH:-*.json}"
 
-for trace in `ls *.json | sort -V`; do
+for trace in $(find $DEST_PATH | sort -V); do
   if [ -f $trace ]; then
     winner=$(cat $trace | jq -c ".outcome")
     num_steps=$(cat $trace | jq -r ".steps | length")
-    echo "$trace, $winner, num-steps: $num_steps"
+
+    if [ "$winner" != "null" ]; then
+      echo "$trace, $winner, num-steps: $num_steps"
+    fi
 
     color=$(cat $trace | jq -r ".outcome.winner")
     case $color in
-      "White")
-        white=$(($white + 1));;
-      "Black")
-        black=$(($black + 1));;
+    "White")
+      white=$(($white + 1))
+      ;;
+    "Black")
+      black=$(($black + 1))
+      ;;
     esac
     total=$(($total + 1))
   fi

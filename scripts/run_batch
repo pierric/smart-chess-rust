@@ -2,7 +2,8 @@ set -eux
 source .env
 
 ARGS=$@
-N=100
+N=${N:-100}
+P=${P:-1}
 
 task() {
     JOB_ID=$1
@@ -12,7 +13,7 @@ task() {
 }
 
 export -f task
-parallel -j2 task {#} ${ARGS} ::: $(seq 1 $N)
+parallel -j${P} task {#} ${ARGS} ::: $(seq 1 $N)
 
 for run_idx in `seq $N`; do
     n=$(printf %02d $run_idx)

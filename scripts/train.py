@@ -17,8 +17,6 @@ from lightning.pytorch.callbacks import LearningRateMonitor, Callback
 from dataset import ChessDataset, ValidationDataset
 from nn import load_model
 
-BATCH_SIZE = 1024
-
 
 class ChessLightningModule(L.LightningModule):
     def __init__(self, config):
@@ -109,12 +107,16 @@ class ChessLightningModule(L.LightningModule):
         )
         # return optimizer
 
-        from torch.optim.lr_scheduler import OneCycleLR
+        # from torch.optim.lr_scheduler import OneCycleLR
+        from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 
-        scheduler = OneCycleLR(
+        scheduler = CosineAnnealingWarmRestarts(
             optimizer=optimizer,
-            max_lr=self.config["lr"],
-            total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+            eta_min=1e-5,
+            T_0=100,
+            T_mult=1,
+            # max_lr=self.config["lr"],
+            # total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
         )
         return {
             "optimizer": optimizer,
@@ -184,6 +186,7 @@ def main():
     parser.add_argument("--save-end", type=int, default=100)
     parser.add_argument("--model-conf", type=str, default=None)
     parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
+    parser.add_argument("--train-batch-size", type=int, default=1024)
     args = parser.parse_args()
 
     compile_model = True
@@ -209,7 +212,11 @@ def main():
     dss = ConcatDataset(dss)
 
     train_loader = DataLoader(
-        dss, num_workers=4, batch_size=BATCH_SIZE, shuffle=True, drop_last=True
+        dss,
+        num_workers=4,
+        batch_size=args.train_batch_size,
+        shuffle=True,
+        drop_last=True,
     )
 
     val_loader = DataLoader(
@@ -221,7 +228,7 @@ def main():
     )
 
     config = dict(
-        batch_size=BATCH_SIZE,
+        batch_size=args.train_batch_size,
         epochs=args.epochs,
         steps_per_epoch=len(train_loader),
         lr=args.lr,
@@ -243,6 +250,7 @@ def main():
         max_epochs=config["epochs"],
         log_every_n_steps=5,
         precision="16-mixed",
+        # val_check_interval=10,
     )
     trainer.fit(
         model=module, train_dataloaders=train_loader, val_dataloaders=val_loader
