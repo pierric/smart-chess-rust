@@ -1,0 +1,8 @@
+#!/bin/bash
+
+CKPT="${CKPT:-runs/000/last.pt}"
+
+rocprof --tool-version 2 -d profiling --plugin perfetto \
+  --roctx-trace --hip-trace --kernel-trace --hsa-trace \
+  cargo run --bin smartchess -- -t trace.json -c ${CKPT} \
+  --temperature 1.0 --cpuct 2.5 --rollout-num 200 --num-steps 10
