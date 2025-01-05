@@ -99,15 +99,15 @@ ret_score = ret_score.detach().cpu().item()
             .unwrap()
             .extract()
             .unwrap();
+
+        // how good is the current board for the next player (turn)
+        // This must be in sync with that in training script
         let score: f32 = locals
             .get_item("ret_score")
             .unwrap()
             .unwrap()
             .extract()
             .unwrap();
-        // how good is the current board for the next player (turn)
-        // This must be in sync with that in training script
-        let score = score * (if turn == Color::Black { -1. } else { 1. });
 
         // rotate if the next move is black
         let encoded_moves: Vec<i32> = steps
@@ -175,6 +175,10 @@ fn _post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32> {
             println!("Warning: {:?}", distr);
         }
 
+        if sum < 0.5 {
+            //println!("Warning: move distribution sums up to only {}", sum);
+        }
+
         distr.iter().map(|x| x / sum).collect()
     }
 }
@@ -232,12 +236,9 @@ impl Game<BoardState> for Chess {
         _chess_predict(self, node, state, argmax)
     }
 
-    fn reverse_q(&self, _node: &Node<<BoardState as State>::Step>) -> bool {
-        // dont't reverse the reward, because the chess model is expected
-        // to return the reward for the white player.
-        //
-        //node.step.1 == Color::Black
-        return false;
+    fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
+        // the chess model is expected to return the reward for the white player.
+        node.step.1 == Color::Black
     }
 }
 
@@ -269,7 +270,7 @@ fn call_ts_model(
     // how good is the current board for the next player (turn)
     // This must be in sync with that in training script
     let score = score.to_dtype(tch::Kind::Float, true, false);
-    let score = f32::try_from(&score).unwrap() * (if turn == Color::Black { -1. } else { 1. });
+    let score = f32::try_from(&score).unwrap();
 
     // rotate if the next move is black
     let encoded_moves: Vec<i64> = steps
@@ -283,7 +284,7 @@ fn call_ts_model(
         })
         .collect();
     let encoded_moves = Tensor::from_slice(&encoded_moves).to_device(device);
-    let moves_distr = Vec::<f32>::try_from(full_distr.take(&encoded_moves)).unwrap();
+    let moves_distr = Vec::<f32>::try_from(full_distr.take(&encoded_moves).exp()).unwrap();
 
     (moves_distr, score)
 }
@@ -342,6 +343,7 @@ impl Game<BoardState> for ChessTS {
     }
 
     fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
+        // the chess model is expected to return the reward for the white player.
         node.step.1 == Color::Black
     }
 }
