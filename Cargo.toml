@@ -21,9 +21,9 @@ name = "debug"
 path = "src/debug.rs"
 
 [dependencies]
-pyo3 = { version = "0.20.0", features = ["auto-initialize"] }
-numpy = "0.20.0"
-ndarray = "0.15.6"
+pyo3 = { version = "0.23.3", features = ["auto-initialize"] }
+numpy = "0.23.0"
+ndarray = "=0.15"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 recursive_reference = "0.3.0"
@@ -39,6 +39,7 @@ tch = "0.18.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 libloading = "0.8"
 once_cell = "1.19.0"
+c_str_macro = "1.0.3"
 
 [profile.release]
 debug = true
