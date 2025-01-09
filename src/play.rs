@@ -2,12 +2,12 @@ use clap::{Parser, ValueEnum};
 use rand::distributions::Distribution;
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
-use std::borrow::Borrow;
 use std::boxed::Box;
 use std::cmp::Eq;
 use std::fs::create_dir;
 use std::path::Path;
-use std::ptr::NonNull;
+use std::sync::Arc;
+use std::cell::{RefCell, Ref};
 use trace::Trace;
 use uci::Engine;
 
@@ -62,7 +62,7 @@ struct Args {
     output: String,
 }
 
-type MctsCursor = mcts::CursorMut<(Option<chess::Move>, chess::Color)>;
+type MctsCursor = mcts::Cursor<(Option<chess::Move>, chess::Color)>;
 
 trait Player {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize>;
@@ -93,24 +93,29 @@ impl Player for StockfishPlayer {
 
         let mut choice: Option<usize> = None;
         let legal_moves = game::State::legal_moves(state);
-        let node = cursor.current();
-        let parent = NonNull::new(node as *mut _);
-        node.children.clear();
-        for (index, mov) in legal_moves.into_iter().enumerate() {
-            let mut num_act = 0;
-            if mov.0 == Some(next) {
-                choice = Some(index);
-                num_act = 1;
+        let parent = cursor.as_weak();
+        let depth = cursor.current().depth;
+
+        {
+            let mut mut_node = cursor.current_mut();
+            mut_node.children.clear();
+            for (index, mov) in legal_moves.into_iter().enumerate() {
+                let mut num_act = 0;
+                if mov.0 == Some(next) {
+                    choice = Some(index);
+                    num_act = 1;
+                }
+                mut_node.children.push(Arc::new(RefCell::new(mcts::Node {
+                    step: mov,
+                    depth: depth + 1,
+                    q_value: 0.,
+                    num_act: num_act,
+                    parent: Some(parent.clone()),
+                    children: Vec::new(),
+                })));
             }
-            node.children.push(Box::new(mcts::Node {
-                step: mov,
-                depth: node.depth + 1,
-                q_value: 0.,
-                num_act: num_act,
-                parent: parent,
-                children: Vec::new(),
-            }));
         }
+
         assert!(choice.is_some());
         choice
     }
@@ -183,7 +188,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
         mcts::mcts(
             &self.game,
-            cursor.current(),
+            cursor.arc(),
             &state,
             self.n_rollout,
             Some(self.cpuct),
@@ -193,7 +198,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             .current()
             .children
             .iter()
-            .map(|a| a.num_act)
+            .map(|n: &mcts::ArcRefNode<_>| n.borrow().num_act)
             .collect();
         if num_act_vec.len() == 0 {
             return None;
@@ -226,10 +231,13 @@ fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, t
         .current()
         .children
         .iter()
-        .map(|c| (c.step.0.unwrap(), c.num_act, c.q_value))
+        .map(|n: &mcts::ArcRefNode<_>| {
+            let n: Ref<'_, mcts::Node<_>> = n.borrow();
+            (n.step.0.unwrap(), n.num_act, n.q_value)
+        })
         .collect();
 
-    cursor.move_children(choice);
+    cursor.navigate_down(choice);
     let step = cursor.current().step;
     let mov = step.0.unwrap();
     let turn = !step.1;
@@ -321,15 +329,14 @@ fn main() {
 
     let mut trace = trace::Trace::new();
     let mut state = chess::BoardState::new();
-    let mut root = mcts::Node {
+    let mut cursor = mcts::Cursor::new(mcts::Node {
         step: (None, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,
         children: Vec::new(),
-    };
-    let mut cursor = root.as_cursor_mut();
+    });
 
     let white_checkpoint = Path::new(&args.white_checkpoint);
     let white = load_checkpoint(
@@ -339,6 +346,8 @@ fn main() {
         args.cpuct,
         args.temperature,
     );
+
+    use std::borrow::Borrow;
 
     match args.black_type {
         Opponent::Stockfish => {

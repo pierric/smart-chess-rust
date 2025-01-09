@@ -1,14 +1,16 @@
 use crate::chess::{get_board_from_moves, BoardHistory, BoardState, Color, Move};
-use crate::mcts::Node;
+use crate::mcts::{Cursor, ArcRefNode};
 use cached::proc_macro::cached;
 use cached::SizedCache;
 use ndarray::Array3;
+use numpy::{PyArray};
 use numpy::array::{PyArray1, PyArray3};
+use numpy::PyArrayMethods;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::ptr::NonNull;
+use c_str_macro::c_str;
 
 pub const LOOKBACK: usize = 8;
 
@@ -18,12 +20,12 @@ where
 {
     fn predict(
         &self,
-        node: &Node<S::Step>,
+        node: &ArcRefNode<S::Step>,
         state: &S,
         argmax: bool,
     ) -> (Vec<S::Step>, Vec<f32>, f32);
 
-    fn reverse_q(&self, node: &Node<S::Step>) -> bool;
+    fn reverse_q(&self, node: &ArcRefNode<S::Step>) -> bool;
 }
 
 pub trait State {
@@ -72,7 +74,7 @@ fn call_py_model(
         let encoded_boards = PyArray3::from_array(py, &boards);
         let encoded_meta = PyArray3::from_array(py, &meta);
 
-        let code = r#"
+        let code = c_str!(r#"
 inp = np.concatenate((encoded_boards, encoded_meta), axis=-1).astype(np.float32)
 inp = inp.transpose((2, 0, 1))
 inp = torch.from_numpy(inp[np.newaxis, :])
@@ -81,24 +83,22 @@ with torch.no_grad():
 ret_distr = ret_distr.detach().cpu().numpy().squeeze()
 ret_distr = np.exp(ret_distr)
 ret_score = ret_score.detach().cpu().item()
-"#;
+"#);
         let locals = [
             ("np", py.import("numpy").unwrap().as_ref()),
             ("torch", py.import("torch").unwrap().as_ref()),
             ("encoded_boards", encoded_boards.as_ref()),
             ("encoded_meta", encoded_meta.as_ref()),
-            ("model", model.as_ref(py)),
-            ("device", PyString::new(py, device)),
-        ]
-        .into_py_dict(py);
-        py.run(code, Some(locals), None).unwrap();
+            ("model", model.bind(py)),
+            ("device", PyString::new(py, device).as_any()),
+        ].into_py_dict(py)?;
+        py.run(code, Some(&locals), None)?;
 
-        let full_distr: &PyArray1<f32> = locals
+        let full_distr: Bound<'_, PyArray1<f32>> = locals
             .get_item("ret_distr")
             .unwrap()
             .unwrap()
-            .extract()
-            .unwrap();
+            .downcast_into()?;
 
         // how good is the current board for the next player (turn)
         // This must be in sync with that in training script
@@ -106,8 +106,8 @@ ret_score = ret_score.detach().cpu().item()
             .get_item("ret_score")
             .unwrap()
             .unwrap()
-            .extract()
-            .unwrap();
+            .downcast()?
+            .extract()?;
 
         // rotate if the next move is black
         let encoded_moves: Vec<i32> = steps
@@ -120,38 +120,42 @@ ret_score = ret_score.detach().cpu().item()
                 }
             })
             .collect();
+
         let moves_distr: Vec<f32> = full_distr
             .readonly()
-            .get_item(encoded_moves.to_object(py))
-            .and_then(|o| o.extract())
-            .unwrap();
+            .get_item(PyArray::from_vec(py, encoded_moves))
+            .and_then(|o| o.extract())?;
 
-        (moves_distr, score)
-    })
+        Ok::<_, PyErr>((moves_distr, score))
+    }).unwrap()
 }
 
-fn _encode(node: &Node<(Option<Move>, Color)>, state: &BoardState) -> (Array3<i32>, Array3<i32>) {
+fn _encode(node: &ArcRefNode<(Option<Move>, Color)>, state: &BoardState) -> (Array3<i32>, Array3<i32>) {
     let current_board = state.to_board();
     let mut history = BoardHistory::new(LOOKBACK);
     let mut move_stack = state.move_stack();
 
-    let mut cur = NonNull::from(node);
+    let mut cursor = Cursor::from_arc(node.clone());
     for _ in 0..LOOKBACK {
-        let n = unsafe { cur.as_ref() };
         // latter boards are kept at the front
         // must be in sync with encode_steps in lib.rs
         history.push_back(&get_board_from_moves(&move_stack));
-        match n.parent {
+        let (parent, last_move) = {
+            let n = cursor.current();
+            (n.parent.clone(), n.step.0)
+        };
+        match parent {
             None => break,
-            Some(parent) => {
+            Some(_) => {
                 let m = move_stack.pop();
-                assert!(m == n.step.0, "sanity check on the last move failed");
-                cur = parent;
+                assert!(m == last_move, "sanity check on the last move failed");
+                cursor.navigate_up();
             }
         }
     }
 
-    let encoded_boards = history.view(node.step.1 == Color::Black);
+    let turn = node.borrow().step.1;
+    let encoded_boards = history.view(turn == Color::Black);
     let encoded_meta = current_board.encode_meta();
 
     (encoded_boards, encoded_meta)
@@ -187,12 +191,12 @@ fn _post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32> {
     type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
     create = "{ SizedCache::with_size(5000) }",
     convert = r#"{
-        (argmax, state.move_stack(), node.step.1)
+        (argmax, state.move_stack(), node.borrow().step.1)
     }"#
 )]
 fn _chess_predict(
     chess: &Chess,
-    node: &Node<(Option<Move>, Color)>,
+    node: &ArcRefNode<(Option<Move>, Color)>,
     state: &BoardState,
     argmax: bool,
 ) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
@@ -208,20 +212,21 @@ fn _chess_predict(
     }
 
     let (encoded_boards, encoded_meta) = _encode(node, state);
+    let turn = node.borrow().step.1;
 
     let (moves_distr, score) = call_py_model(
         &chess.model,
         &chess.device,
         encoded_boards,
         encoded_meta,
-        node.step.1,
+        turn,
         &legal_moves,
     );
 
     let moves_distr = _post_process_distr(moves_distr, argmax);
     let next_steps = legal_moves
         .into_iter()
-        .map(|m| (Some(m), !node.step.1))
+        .map(|m| (Some(m), !turn))
         .collect();
     return (next_steps, moves_distr, score);
 }
@@ -229,16 +234,16 @@ fn _chess_predict(
 impl Game<BoardState> for Chess {
     fn predict(
         &self,
-        node: &Node<<BoardState as State>::Step>,
+        node: &ArcRefNode<<BoardState as State>::Step>,
         state: &BoardState,
         argmax: bool,
     ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
         _chess_predict(self, node, state, argmax)
     }
 
-    fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
+    fn reverse_q(&self, node: &ArcRefNode<<BoardState as State>::Step>) -> bool {
         // the chess model is expected to return the reward for the white player.
-        node.step.1 == Color::Black
+        node.borrow().step.1 == Color::Black
     }
 }
 
@@ -293,12 +298,12 @@ fn call_ts_model(
     type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
     create = "{ SizedCache::with_size(10000) }",
     convert = r#"{
-        (argmax, state.move_stack(), node.step.1)
+        (argmax, state.move_stack(), node.borrow().step.1)
     }"#
 )]
 fn _chess_ts_predict(
     chess: &ChessTS,
-    node: &Node<(Option<Move>, Color)>,
+    node: &ArcRefNode<(Option<Move>, Color)>,
     state: &BoardState,
     argmax: bool,
 ) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
@@ -313,21 +318,22 @@ fn _chess_ts_predict(
         return (Vec::new(), Vec::new(), outcome);
     }
 
-    let (encoded_boards, encoded_meta) = _encode(node, state);
+    let (encoded_boards, encoded_meta) = _encode(&node, state);
+    let turn = node.borrow().step.1;
 
     let (moves_distr, score) = call_ts_model(
         &chess.model,
         chess.device,
         encoded_boards,
         encoded_meta,
-        node.step.1,
+        turn,
         &legal_moves,
     );
 
     let moves_distr = _post_process_distr(moves_distr, argmax);
     let next_steps = legal_moves
         .into_iter()
-        .map(|m| (Some(m), !node.step.1))
+        .map(|m| (Some(m), !turn))
         .collect();
     return (next_steps, moves_distr, score);
 }
@@ -335,16 +341,16 @@ fn _chess_ts_predict(
 impl Game<BoardState> for ChessTS {
     fn predict(
         &self,
-        node: &Node<<BoardState as State>::Step>,
+        node: &ArcRefNode<<BoardState as State>::Step>,
         state: &BoardState,
         argmax: bool,
     ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
         _chess_ts_predict(self, node, state, argmax)
     }
 
-    fn reverse_q(&self, node: &Node<<BoardState as State>::Step>) -> bool {
+    fn reverse_q(&self, node: &ArcRefNode<<BoardState as State>::Step>) -> bool {
         // the chess model is expected to return the reward for the white player.
-        node.step.1 == Color::Black
+        node.borrow().step.1 == Color::Black
     }
 }
 

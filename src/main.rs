@@ -1,4 +1,8 @@
+#![feature(get_mut_unchecked)]
+
 use clap::Parser;
+use std::sync::Arc;
+use std::cell::RefCell;
 
 mod chess;
 mod game;
@@ -64,15 +68,20 @@ fn main() {
     let mut trace = trace::Trace::new();
 
     let mut state = chess::BoardState::new();
-    let mut root = mcts::Node {
+
+    // don't move this root! necessary to ensure the root alive.
+    // as the children has only a weak back reference, the parent might
+    // be recycled.
+    let root = Arc::new(RefCell::new(mcts::Node {
         step: (None, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,
         children: Vec::new(),
-    };
-    let mut cursor = root.as_cursor_mut();
+    }));
+
+    let mut cursor = mcts::Cursor::from_arc(root.clone());
     let mut outcome = None;
 
     for i in 0..args.num_steps {
@@ -91,15 +100,21 @@ fn main() {
             args.cpuct,
             cursor.current().step.1
         );
-        mcts::mcts(&chess, cursor.current(), &state, rollout, Some(args.cpuct));
+        mcts::mcts(&chess, cursor.arc(), &state, rollout, Some(args.cpuct));
 
-        let node = cursor.current();
-        let q_value = node.q_value;
-        let num_act_children: Vec<(chess::Move, i32, f32)> = node
-            .children
-            .iter()
-            .map(|c| (c.step.0.unwrap(), c.num_act, c.q_value))
-            .collect();
+        let (q_value, num_act_children) = {
+            let node = cursor.current();
+            let q_value = node.q_value;
+            let num_act_children: Vec<(chess::Move, i32, f32)> = node
+                .children
+                .iter()
+                .map(|n| {
+                    let n = n.borrow();
+                    (n.step.0.unwrap(), n.num_act, n.q_value)
+                })
+                .collect();
+            (q_value, num_act_children)
+        };
 
         match mcts::step(&mut cursor, &mut state, temperature) {
             None => {

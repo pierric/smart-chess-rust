@@ -3,7 +3,7 @@ use cached::proc_macro::cached;
 use cached::{SizedCache, Cached};
 use ndarray::{s, Array3, Ix3};
 use once_cell::sync::Lazy;
-use pyo3::conversion::IntoPy;
+use pyo3::conversion::IntoPyObject;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -14,6 +14,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Not;
 use std::cmp;
+use c_str_macro::c_str;
 
 static CHESS_MODULE: Lazy<Py<PyModule>> =
     Lazy::new(|| Python::with_gil(|py| py.import("chess").unwrap().into()));
@@ -139,32 +140,40 @@ impl From<i32> for Color {
 }
 
 impl<'a> FromPyObject<'a> for PieceType {
-    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         return obj.extract::<i32>().map(|v| v.into());
     }
 }
 
-impl IntoPy<Py<PyAny>> for PieceType {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        (self as i32).into_py(py)
+impl<'a> IntoPyObject<'a> for PieceType {
+    type Target = PyInt;
+    type Output = Bound<'a, Self::Target>; // in most cases this will be `Bound`
+    type Error = std::convert::Infallible;
+
+    fn into_pyobject(self, py: Python<'a>) -> Result<Self::Output, Self::Error> {
+        (self as i32).into_pyobject(py)
     }
 }
 
 impl<'a> FromPyObject<'a> for Color {
-    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         return obj.extract::<i32>().map(|v| v.into());
     }
 }
 
-impl IntoPy<Py<PyAny>> for Color {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        let v = self == Color::White;
-        return v.into_py(py);
+impl<'a> IntoPyObject<'a> for Color {
+    type Target = PyBool;
+    type Output = Borrowed<'a, 'a, Self::Target>; // in most cases this will be `Bound`
+    type Error = std::convert::Infallible;
+
+    fn into_pyobject(self, py: Python<'a>) -> Result<Self::Output, Self::Error> {
+        let v: bool = self == Color::White;
+        return v.into_pyobject(py);
     }
 }
 
 impl<'a> FromPyObject<'a> for Move {
-    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         let py = obj.py();
         let from = obj
             .getattr(intern!(py, "from_square"))
@@ -185,24 +194,24 @@ impl<'a> FromPyObject<'a> for Move {
     }
 }
 
-impl IntoPy<Py<PyAny>> for Move {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        let from = self.from.into_py(py);
-        let to = self.to.into_py(py);
+impl<'a> IntoPyObject<'a> for Move {
+    type Target = PyAny;
+    type Output = Bound<'a, Self::Target>; // in most cases this will be `Bound`
+    type Error = std::convert::Infallible;
+
+    fn into_pyobject(self, py: Python<'a>) -> Result<Self::Output, Self::Error> {
+        let from = self.from.into_pyobject(py).unwrap().into_any().unbind();
+        let to = self.to.into_pyobject(py).unwrap().into_any().unbind();
         let promotion = match self.promotion {
             None => py.None(),
-            Some(pt) => pt.into_py(py),
+            Some(pt) => pt.into_pyobject(py).unwrap().into_any().unbind(),
         };
         let drop = match self.drop {
             None => py.None(),
-            Some(pt) => pt.into_py(py),
+            Some(pt) => pt.into_pyobject(py).unwrap().into_any().unbind(),
         };
-        CHESS_MODULE
-            .as_ref(py)
-            .getattr("Move")
-            .and_then(|mov| mov.call1((from, to, promotion, drop)))
-            .unwrap()
-            .into_py(py)
+        let ctor = CHESS_MODULE.bind(py).getattr("Move").unwrap();
+        Ok(ctor.call1((from, to, promotion, drop)).unwrap())
     }
 }
 
@@ -242,7 +251,7 @@ impl<'a> Deserialize<'a> for Move {
 }
 
 impl<'a> FromPyObject<'a> for Square {
-    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         let square: i32 = obj.extract()?;
         let file = square & 7;
         let rank = square >> 3;
@@ -250,14 +259,18 @@ impl<'a> FromPyObject<'a> for Square {
     }
 }
 
-impl IntoPy<Py<PyAny>> for Square {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
+impl<'a> IntoPyObject<'a> for Square {
+    type Target = PyAny;
+    type Output = Bound<'a, Self::Target>; // in most cases this will be `Bound`
+    type Error = std::convert::Infallible;
+
+    fn into_pyobject(self, py: Python<'a>) -> Result<Self::Output, Self::Error> {
         CHESS_MODULE
-            .as_ref(py)
+            .bind(py)
             .getattr("square")
             .and_then(|square| square.call1((self.file, self.rank)))
             .unwrap()
-            .into_py(py)
+            .into_pyobject(py)
     }
 }
 
@@ -280,7 +293,7 @@ impl From<i32> for Termination {
 }
 
 impl<'a> FromPyObject<'a> for Termination {
-    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         return obj
             .getattr(intern!(obj.py(), "value"))?
             .extract::<i32>()
@@ -289,7 +302,7 @@ impl<'a> FromPyObject<'a> for Termination {
 }
 
 impl<'a> FromPyObject<'a> for Outcome {
-    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         let py = obj.py();
         let term = obj.getattr(intern!(py, "termination"))?.extract()?;
         let winner = obj.getattr(intern!(py, "winner"))?.extract()?;
@@ -301,16 +314,17 @@ impl<'a> FromPyObject<'a> for Outcome {
 }
 
 impl<'a> FromPyObject<'a> for Board {
-    fn extract(obj: &PyAny) -> Result<Self, PyErr> {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         let py = obj.py();
 
         let turn: i32 = obj.getattr(intern!(py, "turn"))?.extract()?;
         let turn: Color = turn.into();
         let halfmove_clock = obj.getattr(intern!(py, "halfmove_clock"))?.extract()?;
         let fullmove_number = obj.getattr(intern!(py, "fullmove_number"))?.extract()?;
-        let piece_map: &PyDict = obj
+        let piece_map: Bound<'a, PyDict> = obj
             .call_method0(intern!(py, "piece_map"))
-            .and_then(|any: &PyAny| any.downcast().map_err(PyErr::from))?;
+            ?.downcast_into()
+            .map_err(PyErr::from)?;
         let piece_map = piece_map
             .iter()
             .map(|(square, piece)| (square.extract().unwrap(), piece.extract().unwrap()))
@@ -455,7 +469,7 @@ impl Move {
     pub fn from_uci(uci: &str) -> Self {
         Python::with_gil(|py| {
             CHESS_MODULE
-                .as_ref(py)
+                .bind(py)
                 .getattr("Move")
                 .and_then(|cls| cls.getattr("from_uci"))
                 .and_then(|func| func.call1((uci,)))
@@ -628,7 +642,7 @@ impl BoardState {
     pub fn new() -> Self {
         Python::with_gil(|py| {
             let board = CHESS_MODULE
-                .as_ref(py)
+                .bind(py)
                 .getattr("Board")
                 .and_then(|board| board.call0())
                 .unwrap();
@@ -659,7 +673,7 @@ impl BoardState {
             kwargs.set_item("claim_draw", true)?;
             let res =
                 self.python_object
-                    .call_method(py, intern!(py, "outcome"), (), Some(kwargs))?;
+                    .call_method(py, intern!(py, "outcome"), (), Some(&kwargs))?;
             res.extract(py)
         })
         .unwrap()
@@ -677,20 +691,18 @@ impl BoardState {
 
     pub fn next(&mut self, mov: &Move) {
         Python::with_gil(|py| {
-            self.python_object
-                .call_method1(py, intern!(py, "push"), (mov.into_py(py),))
+            mov.into_pyobject(py).map_err(PyErr::from).and_then(
+                |m| self.python_object.call_method1(py, intern!(py, "push"), (m,))
+            )
         })
         .unwrap();
     }
 
     pub fn legal_moves(&self) -> Vec<Move> {
         Python::with_gil(|py| {
-            let locals = [("board", &self.python_object)].into_py_dict(py);
-            py.eval("list(board.legal_moves)", None, Some(&locals))
-                .unwrap()
-                .extract()
-                .unwrap()
-        })
+            let locals = [("board", &self.python_object)].into_py_dict(py)?;
+            py.eval(c_str!("list(board.legal_moves)"), None, Some(&locals)).unwrap().extract()
+        }).unwrap()
     }
 
     pub fn move_stack(&self) -> Vec<Move> {
@@ -724,21 +736,16 @@ impl game::State for BoardState {
 
     fn legal_moves(&self) -> Vec<Self::Step> {
         Python::with_gil(|py| {
-            let locals = [("board", &self.python_object)].into_py_dict(py);
+            let locals = [("board", &self.python_object)].into_py_dict(py)?;
             let mov: Vec<Move> = py
-                .eval("list(board.legal_moves)", None, Some(&locals))
-                .unwrap()
-                .extract()
-                .unwrap();
+                .eval(c_str!("list(board.legal_moves)"), None, Some(&locals))
+                ?.extract()?;
             let turn: Color = self
                 .python_object
                 .getattr(py, intern!(py, "turn"))
-                .unwrap()
-                .extract::<i32>(py)
-                .unwrap()
-                .into();
-            mov.into_iter().map(|m| (Some(m), !turn)).collect()
-        })
+                ?.extract::<i32>(py)?.into();
+            Ok::<_, PyErr>(mov.into_iter().map(|m| (Some(m), !turn)).collect())
+        }).unwrap()
     }
 }
 

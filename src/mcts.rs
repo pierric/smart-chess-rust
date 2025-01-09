@@ -2,23 +2,23 @@ use crate::game::{Game, State};
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
 use rand_distr::{Dirichlet, Distribution};
-use recursive_reference::*;
 use std::iter::Sum;
-use std::ops::Deref;
-use std::ptr::NonNull;
+use std::sync::{Arc, Weak};
+use std::cell::{RefCell, Ref, RefMut};
+
+pub type ArcRefNode<T> = Arc<RefCell<Node<T>>>;
+type WeakRefNode<T> = Weak<RefCell<Node<T>>>;
 
 pub struct Node<T> {
     pub step: T,
     pub depth: u32,
     pub q_value: f32,
     pub num_act: i32,
-    pub parent: Option<NonNull<Node<T>>>,
-    pub children: Vec<Box<Node<T>>>,
+    pub parent: Option<WeakRefNode<T>>,
+    pub children: Vec<ArcRefNode<T>>,
 }
 
-pub struct CursorMut<T> {
-    pub current: NonNull<Node<T>>,
-}
+pub struct Cursor<T>(ArcRefNode<T>);
 
 fn uct(
     sqrt_total_num_vis: f32,
@@ -49,27 +49,32 @@ where
         .map(|p| p.0);
 }
 
-fn backward<T>(mut ptr: RecRef<Node<T>>, reward: f32)
+fn backward<T>(path: &Vec<ArcRefNode<T>>, reward: f32)
 where
     T: std::fmt::Debug,
 {
+    for node in path {
+        let mut v: RefMut<'_, _> = node.borrow_mut();
+        v.q_value += reward;
+    }
+
     // let mut last: String = String::from("");
     // use string_builder::Builder;
     // let mut builder = Builder::default();
 
-    loop {
-        ptr.q_value += reward;
+    // loop {
+    //     ptr.q_value += reward;
 
-        // builder.append(format!("{:?} ", ptr.step));
-        // let sz = RecRef::size(&ptr);
-        // if sz == 2 {
-        //     last = format!("{:?}", ptr.step);
-        // }
+    //     // builder.append(format!("{:?} ", ptr.step));
+    //     // let sz = RecRef::size(&ptr);
+    //     // if sz == 2 {
+    //     //     last = format!("{:?}", ptr.step);
+    //     // }
 
-        if RecRef::pop(&mut ptr).is_none() {
-            break;
-        }
-    }
+    //     if RecRef::pop(&mut ptr).is_none() {
+    //         break;
+    //     }
+    // }
 
     // if last == "(Some(Move[f2f4]), Black)" {
     //     println!("backward: reward {} last {:?} path {:?}", reward, last, builder.string());
@@ -78,11 +83,11 @@ where
 
 fn select<'a, G, S>(
     game: &G,
-    node: &'a mut Node<S::Step>,
+    node: &ArcRefNode<S::Step>,
     state: &mut S,
     cpuct: f32,
     noise: &Option<Vec<f64>>,
-) -> (RecRef<'a, Node<S::Step>>, Vec<S::Step>, f32)
+) -> (Vec<ArcRefNode<S::Step>>, Vec<S::Step>, f32)
 where
     G: Game<S>,
     S: State,
@@ -90,25 +95,31 @@ where
 {
     //Descend in the tree until some leaf, exploiting the knowledge to choose
     //the best child each time.
-    let mut ptr: RecRef<Node<S::Step>> = RecRef::new(node);
-    let mut root = true;
+    let mut path: Vec<ArcRefNode<S::Step>> = vec![node.clone()];
 
     loop {
-        let node = ptr.deref();
-        let (steps, prior, outcome) = game.predict(node, &state, false);
-        let reverse_q = game.reverse_q(node);
+        let (recent_node, path_len) = {
+            (path.last().unwrap().clone(), path.len())
+        };
 
-        ptr.num_act += 1;
-
-        if ptr.children.is_empty() || steps.is_empty() {
-            // either game is end or yet to be explored
-            return (ptr, steps, outcome);
+        {
+            (*recent_node.borrow_mut()).num_act += 1;
         }
 
-        let best = if ptr.children.len() == 1 {
-            0
+        let (steps, prior, outcome) = game.predict(&recent_node, &state, false);
+        let reverse_q = game.reverse_q(&recent_node);
+        let children = &recent_node.borrow().children;
+
+        if children.is_empty() || steps.is_empty() {
+            // either game is end or yet to be explored
+            return (path, steps, outcome);
+        }
+
+        let best_child = if children.len() == 1 {
+            &children[0]
         } else {
-            let prior_rand: Vec<f32> = match (root, noise) {
+            let is_root = path_len > 1;
+            let prior_rand: Vec<f32> = match (is_root, noise) {
                 (false, _) => prior,
                 (_, None) => prior,
                 (_, Some(noise)) => prior
@@ -118,33 +129,31 @@ where
                     .collect(),
             };
             let sqrt_total_num_vis =
-                f32::sqrt(i32::sum(ptr.children.iter().map(|c| c.num_act)) as f32);
+                f32::sqrt(i32::sum(children.iter().map(|c| c.borrow().num_act)) as f32);
             let uct_children: Vec<f32> = prior_rand
                 .iter()
-                .zip(ptr.children.iter())
+                .zip(children.iter())
                 .map(|(prior, child)| {
                     uct(
                         sqrt_total_num_vis,
                         *prior,
-                        child.q_value,
-                        child.num_act,
+                        child.borrow().q_value,
+                        child.borrow().num_act,
                         reverse_q,
                         cpuct,
                     )
                 })
                 .collect();
-            find_max(uct_children.into_iter()).unwrap()
+            let idx = find_max(uct_children.into_iter()).unwrap();
+            &children[idx]
         };
 
-        state.advance(&ptr.children[best].step);
-        RecRef::extend(&mut ptr, |node: &mut Node<S::Step>| {
-            node.children[best].as_mut()
-        });
-        root = false;
+        state.advance(&best_child.borrow().step);
+        path.push(best_child.clone());
     }
 }
 
-pub fn mcts<G, S>(game: &G, node: &mut Node<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>)
+pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>)
 where
     G: Game<S>,
     S: State,
@@ -166,26 +175,29 @@ where
         let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct, &noise);
 
         // path points at a leaf node, either game is done, or it isn't finished
-        path.children = steps
+        let cur: &Arc<_> = path.last().unwrap();
+        let depth = cur.borrow().depth;
+        let children = steps
             .into_iter()
             .map(|step| {
-                Box::new(Node {
+                Arc::new(RefCell::new(Node {
                     step: step,
-                    depth: path.depth + 1,
+                    depth: depth + 1,
                     q_value: 0.,
                     num_act: 0,
-                    parent: Some(NonNull::from(&*path)),
+                    parent: Some(Arc::downgrade(cur)),
                     children: Vec::new(),
-                })
+                }))
             })
             .collect();
+        cur.borrow_mut().children = children;
 
-        backward(path, reward);
+        backward(&mut path, reward);
     }
 }
 
 #[allow(dead_code)]
-pub fn step<S>(cursor: &mut CursorMut<S::Step>, state: &mut S, temp: f32) -> Option<S::Step>
+pub fn step<S>(cursor: &mut Cursor<S::Step>, state: &mut S, temp: f32) -> Option<S::Step>
 where
     S: State,
     S::Step: Copy,
@@ -194,7 +206,7 @@ where
         .current()
         .children
         .iter()
-        .map(|a| a.num_act)
+        .map(|a| a.borrow().num_act)
         .collect();
 
     if num_act_vec.len() == 0 {
@@ -218,27 +230,69 @@ where
         weights.sample(&mut thread_rng())
     };
 
-    cursor.move_children(choice);
+    cursor.navigate_down(choice);
     let step = &cursor.current().step;
     State::advance(state, step);
     Some(*step)
 }
 
-impl<T> Node<T> {
-    pub fn as_cursor_mut(&mut self) -> CursorMut<T> {
-        CursorMut {
-            current: NonNull::from(self),
+impl<T> Cursor<T> {
+    pub fn from_arc(arc: ArcRefNode<T>) -> Self {
+        Cursor(arc)
+    }
+
+    pub fn current(&self) -> Ref<'_, Node<T>> {
+        self.0.borrow()
+    }
+
+    #[allow(dead_code)]
+    pub fn current_mut(&self) -> RefMut<'_, Node<T>> {
+        self.0.borrow_mut()
+    }
+
+    pub fn arc(&self) -> &ArcRefNode<T> {
+        &self.0
+    }
+
+    #[allow(dead_code)]
+    pub fn as_weak(&self) -> WeakRefNode<T> {
+        Arc::downgrade(&self.0)
+    }
+
+    //#[allow(dead_code)]
+    //pub fn as_mut(&mut self) -> &mut Node<T> {
+    //    let mut_ref = Arc::get_mut(&mut self.0);
+    //    if mut_ref.is_none() {
+    //        panic!("Not possible to update because shared use")
+    //    }
+    //    mut_ref.unwrap()
+    //}
+
+    pub fn navigate_down(&mut self, index: usize) {
+        let next = {
+            let children = &self.0.borrow().children;
+            if index > children.len() {
+                panic!("navigating to an nonexistent child.");
+            }
+            children[index].clone()
+        };
+        self.0 = next;
+    }
+
+    pub fn navigate_up(&mut self) {
+        let parent = self.0.borrow().parent.clone();
+        match parent {
+            None => {
+                panic!("navigating to the parent, but already at the root");
+            },
+            Some(parent) => {
+                let parent_arc = parent.upgrade();
+                if parent_arc.is_none() {
+                    panic!("navigating to the parent, but failed to turn the weak ref into an arc")
+                }
+                self.0 = parent_arc.unwrap();
+            }
         }
     }
 }
 
-impl<T> CursorMut<T> {
-    pub fn current(&mut self) -> &mut Node<T> {
-        unsafe { self.current.as_mut() }
-    }
-
-    pub fn move_children(&mut self, index: usize) {
-        let child = unsafe { self.current.as_ref().children[index].as_ref() };
-        self.current = NonNull::from(child);
-    }
-}

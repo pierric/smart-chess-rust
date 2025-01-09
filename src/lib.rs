@@ -1,6 +1,7 @@
 use ndarray::{Array1, Ix1};
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
+use pyo3::types::PyCapsule;
 use std::collections::{HashMap, HashSet};
 
 pub mod chess;
@@ -78,15 +79,17 @@ fn encode_steps(
                 encoded_dist[Ix1(ind as usize)] = val;
             }
 
-            let encoded_boards: &PyArray3<i32> = PyArray3::from_array(py, &encoded_boards);
-            let encoded_meta: &PyArray3<i32> = PyArray3::from_array(py, &encoded_meta);
-            let encoded_dist: &PyArray1<f32> = PyArray1::from_array(py, &encoded_dist);
+            let encoded_boards: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &encoded_boards);
+            let encoded_meta: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &encoded_meta);
+            let encoded_dist: Bound<'_, PyArray1<f32>> = PyArray1::from_array(py, &encoded_dist);
+
+            let move_indices = moves_indices.into_pyobject(py).unwrap();
 
             ret.push((
-                encoded_boards.into_py(py),
-                encoded_meta.into_py(py),
-                encoded_dist.into_py(py),
-                moves_indices.into_py(py),
+                encoded_boards.unbind().into_any(),
+                encoded_meta.unbind().into_any(),
+                encoded_dist.unbind().into_any(),
+                move_indices.unbind(),
             ));
             board_state.next(mov);
         }
@@ -103,19 +106,46 @@ fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, 
         } else {
             board.rotate()
         };
-        let encoded_boards: &PyArray3<i32> = PyArray3::from_array(py, &board.encode_pieces());
-        let encoded_meta: &PyArray3<i32> = PyArray3::from_array(py, &board.encode_meta());
-        Ok((encoded_boards.into_py(py), encoded_meta.into_py(py)))
+        let encoded_boards: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &board.encode_pieces());
+        let encoded_meta: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &board.encode_meta());
+        Ok((encoded_boards.unbind().into_any(), encoded_meta.unbind().into_any()))
     })
+}
+
+#[allow(dead_code)]
+struct ChessEngineState(game::ChessTS, chess::BoardState, mcts::Cursor<<chess::BoardState as game::State>::Step>);
+
+#[pyfunction]
+fn new_chess_engine_state(checkpoint: &str) -> PyResult<Py<PyCapsule>> {
+    let device = tch::Device::Cuda(0);
+    let chess = game::ChessTS {
+        model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
+        device: device,
+    };
+
+    let board = chess::BoardState::new();
+    let cursor = mcts::Cursor::new(mcts::Node {
+        step: (None::<chess::Move>, chess::Color::White),
+        depth: 0,
+        q_value: 0.,
+        num_act: 0,
+        parent: None,
+        children: Vec::new(),
+    });
+    Python::with_gil(|py| {
+        //PyCapsule::new(py, ChessEngineState(chess, board, cursor), None).map(Bound::unbind)
+    });
+    panic!("")
 }
 
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
 #[pymodule]
-fn libsmartchess(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encode_board, m)?)?;
     m.add_function(wrap_pyfunction!(encode_move, m)?)?;
     m.add_function(wrap_pyfunction!(encode_steps, m)?)?;
+    m.add_function(wrap_pyfunction!(new_chess_engine_state, m)?)?;
     Ok(())
 }
