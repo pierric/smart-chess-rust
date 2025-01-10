@@ -113,10 +113,21 @@ fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, 
 }
 
 #[allow(dead_code)]
-struct ChessEngineState(game::ChessTS, chess::BoardState, mcts::Cursor<<chess::BoardState as game::State>::Step>);
+struct ChessEngineState {
+    chess: game::ChessTS,
+    board: chess::BoardState,
+    root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
+    cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
+}
+
+
+// NOTE: it is not possible to be Send safely without adding locks, as the cursor part
+// carries mutable data. But for the use case, it is just right to fake a Send impl,
+// so that we can wrap it into a PyCapsule.
+unsafe impl Send for ChessEngineState {}
 
 #[pyfunction]
-fn new_chess_engine_state(checkpoint: &str) -> PyResult<Py<PyCapsule>> {
+fn play_new(checkpoint: &str) -> PyResult<PyObject> {
     let device = tch::Device::Cuda(0);
     let chess = game::ChessTS {
         model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
@@ -124,7 +135,7 @@ fn new_chess_engine_state(checkpoint: &str) -> PyResult<Py<PyCapsule>> {
     };
 
     let board = chess::BoardState::new();
-    let cursor = mcts::Cursor::new(mcts::Node {
+    let (cursor, root) = mcts::Cursor::new(mcts::Node {
         step: (None::<chess::Move>, chess::Color::White),
         depth: 0,
         q_value: 0.,
@@ -132,10 +143,59 @@ fn new_chess_engine_state(checkpoint: &str) -> PyResult<Py<PyCapsule>> {
         parent: None,
         children: Vec::new(),
     });
+    let state = ChessEngineState {
+        chess: chess,
+        board: board,
+        root: root,
+        cursor: cursor,
+    };
+
     Python::with_gil(|py| {
-        //PyCapsule::new(py, ChessEngineState(chess, board, cursor), None).map(Bound::unbind)
-    });
-    panic!("")
+        let capsule = PyCapsule::new(py, state, None).unwrap();
+        Ok(capsule.unbind().into_any())
+    })
+}
+
+#[pyfunction]
+fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<ChessEngineState>() };
+        mcts::mcts(
+            &state.chess, state.cursor.arc(), &state.board, rollout, Some(cpuct)
+        );
+    })
+}
+
+#[pyfunction]
+fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject)>{
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<ChessEngineState>() };
+        let node = state.cursor.current();
+        let q_value = node.q_value;
+        let num_act_children: Vec<(chess::Move, i32, f32)> = node
+            .children
+            .iter()
+            .map(|n| {
+                let n = n.borrow();
+                (n.step.0.unwrap(), n.num_act, n.q_value)
+            })
+            .collect();
+
+        let q = q_value.into_pyobject(py).unwrap().unbind().into_any();
+        let a = num_act_children.into_pyobject(py).unwrap().unbind().into_any();
+        Ok((q, a))
+    })
+}
+
+#[pyfunction]
+fn play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<ChessEngineState>() };
+        let json = serde_json::to_string(&*state.root.borrow()).unwrap();
+        let json_module = py.import("json")?;
+        let ret = json_module.getattr("loads")?.call1((json,))?.unbind();
+        Ok(ret)
+    })
 }
 
 /// A Python module implemented in Rust. The name of this function must match
@@ -146,6 +206,9 @@ fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encode_board, m)?)?;
     m.add_function(wrap_pyfunction!(encode_move, m)?)?;
     m.add_function(wrap_pyfunction!(encode_steps, m)?)?;
-    m.add_function(wrap_pyfunction!(new_chess_engine_state, m)?)?;
+    m.add_function(wrap_pyfunction!(play_new, m)?)?;
+    m.add_function(wrap_pyfunction!(play_mcts, m)?)?;
+    m.add_function(wrap_pyfunction!(play_inspect, m)?)?;
+    m.add_function(wrap_pyfunction!(play_dump_search_tree, m)?)?;
     Ok(())
 }

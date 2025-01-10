@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CKPT="${CKPT:-runs/001/tb_logs/chess/version_7/epoch:4-val_loss:4.325.pt}"
+CKPT="${CKPT:-runs/000/last.pt}"
 
 cargo flamegraph --bin smartchess -- -t trace.json -c ${CKPT} \
   --temperature 1.0 --cpuct 2.5 --rollout-num 200 --num-steps 50

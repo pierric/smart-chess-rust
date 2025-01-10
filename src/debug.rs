@@ -49,7 +49,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
     let steps = trace["steps"].as_array().unwrap();
 
     let mut state = chess::BoardState::new();
-    let mut cursor = mcts::Cursor::new(mcts::Node {
+    let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
         step: (None, chess::Color::White),
         depth: 0,
         q_value: 0.,
@@ -124,7 +124,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
     let steps = trace["steps"].as_array().unwrap();
 
     let mut state = chess::BoardState::new();
-    let mut cursor = mcts::Cursor::new(mcts::Node {
+    let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
         step: (None, chess::Color::White),
         depth: 0,
         q_value: 0.,
@@ -270,7 +270,7 @@ fn bench_to_board() {
     let steps = trace["steps"].as_array().unwrap();
 
     let mut turn = chess::Color::White;
-    let mut cursor = mcts::Cursor::new(mcts::Node {
+    let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
         step: (None, turn),
         depth: 0,
         q_value: 0.,

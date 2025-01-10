@@ -2,6 +2,8 @@ use crate::game::{Game, State};
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
 use rand_distr::{Dirichlet, Distribution};
+use serde::{Serialize, Serializer};
+use serde::ser::{SerializeStruct, SerializeSeq};
 use std::iter::Sum;
 use std::sync::{Arc, Weak};
 use std::cell::{RefCell, Ref, RefMut};
@@ -16,6 +18,38 @@ pub struct Node<T> {
     pub num_act: i32,
     pub parent: Option<WeakRefNode<T>>,
     pub children: Vec<ArcRefNode<T>>,
+}
+
+unsafe impl<T: Send> Send for Node<T> {}
+
+pub struct ChildrenList<'a, T>(&'a Vec<ArcRefNode<T>>);
+
+impl<'a, T: Serialize> Serialize for ChildrenList<'a, T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for elem in self.0 {
+            seq.serialize_element(&*elem.borrow())?;
+        }
+        seq.end() 
+    }
+}
+
+impl<T: Serialize> Serialize for Node<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut node = serializer.serialize_struct("Node", 5)?;
+        node.serialize_field("step", &self.step)?;
+        node.serialize_field("depth", &self.depth)?;
+        node.serialize_field("q", &self.q_value)?;
+        node.serialize_field("num_act", &self.num_act)?;
+        node.serialize_field("children", &ChildrenList(&self.children))?;
+        node.end()
+    }
 }
 
 pub struct Cursor<T>(ArcRefNode<T>);
@@ -237,6 +271,14 @@ where
 }
 
 impl<T> Cursor<T> {
+    pub fn new(data: Node<T>) -> (Self, ArcRefNode<T>) {
+        // don't move this root! necessary to ensure the root alive.
+        // as the children has only a weak back reference, the parent might
+        // be recycled.
+        let arc = Arc::new(RefCell::new(data));
+        (Cursor(arc.clone()), arc)
+    }
+
     pub fn from_arc(arc: ArcRefNode<T>) -> Self {
         Cursor(arc)
     }

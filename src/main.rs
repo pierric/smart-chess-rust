@@ -1,8 +1,4 @@
-#![feature(get_mut_unchecked)]
-
 use clap::Parser;
-use std::sync::Arc;
-use std::cell::RefCell;
 
 mod chess;
 mod game;
@@ -69,19 +65,14 @@ fn main() {
 
     let mut state = chess::BoardState::new();
 
-    // don't move this root! necessary to ensure the root alive.
-    // as the children has only a weak back reference, the parent might
-    // be recycled.
-    let root = Arc::new(RefCell::new(mcts::Node {
+    let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
         step: (None, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
         parent: None,
         children: Vec::new(),
-    }));
-
-    let mut cursor = mcts::Cursor::from_arc(root.clone());
+    });
     let mut outcome = None;
 
     for i in 0..args.num_steps {

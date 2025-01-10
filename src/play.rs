@@ -232,7 +232,7 @@ fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, t
         .children
         .iter()
         .map(|n: &mcts::ArcRefNode<_>| {
-            let n: Ref<'_, mcts::Node<_>> = n.borrow();
+            let n: Ref<'_, _> = n.borrow();
             (n.step.0.unwrap(), n.num_act, n.q_value)
         })
         .collect();
@@ -329,7 +329,7 @@ fn main() {
 
     let mut trace = trace::Trace::new();
     let mut state = chess::BoardState::new();
-    let mut cursor = mcts::Cursor::new(mcts::Node {
+    let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
         step: (None, chess::Color::White),
         depth: 0,
         q_value: 0.,
