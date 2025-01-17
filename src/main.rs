@@ -61,6 +61,30 @@ fn main() {
         device: device,
     };
 
+
+//use pyo3::prelude::*;
+//use pyo3::types::{IntoPyDict, PyString};
+//use c_str_macro::c_str;
+//    let chess = game::Chess {
+//        model: {
+//            Python::with_gil(|py| {
+//                let code = c_str!(r#"
+//mod = nn.ChessModule19().cuda()
+//mod.load_state_dict(torch.load(checkpoint), strict=True)
+//mod.eval()
+//mod = torch.compile(mod, mode="reduce-overhead", fullgraph=True)"#);
+//                let locals = [
+//                    ("torch", py.import("torch").unwrap().as_ref()),
+//                    ("nn", py.import("nn").unwrap().as_ref()),
+//                    ("checkpoint", PyString::new(py, &args.checkpoint).as_any()),
+//                ].into_py_dict(py).unwrap();
+//                py.run(code, None, Some(&locals)).unwrap();
+//                locals.get_item("mod").unwrap().unwrap().unbind()
+//            })
+//        },
+//        device: args.device,
+//    };
+
     let mut trace = trace::Trace::new();
 
     let mut state = chess::BoardState::new();
@@ -76,7 +100,7 @@ fn main() {
     let mut outcome = None;
 
     for i in 0..args.num_steps {
-        let temperature = if i < 8 { 1.0 } else { args.temperature };
+        let temperature = if i < 4 { 1.0 } else { args.temperature };
 
         let rollout = match (args.rollout_factor, args.rollout_num) {
             (Some(v), None) => i32::max(200, (state.legal_moves().len() as f32 * v) as i32),
