@@ -3,6 +3,7 @@ use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
 use std::collections::{HashMap, HashSet};
+use std::cell::{RefCell, RefMut};
 
 pub mod chess;
 pub mod game;
@@ -32,7 +33,7 @@ fn encode_steps(
     let flip_color = chess::Color::Black;
 
     Python::with_gil(|py| {
-        for (mov, num_act) in steps.iter() {
+        for (next_mov, num_act) in steps.iter() {
             let num_act_dict: HashMap<chess::Move, u32> = num_act.iter().cloned().collect();
             let step = if apply_mirror {
                 board_state.to_board().rotate()
@@ -70,6 +71,10 @@ fn encode_steps(
                 panic!("inconsistent moves");
             }
 
+            if !set_moves_exp.contains(next_mov) {
+                panic!("num_act table doesn't include the next move");
+            }
+
             let sum_num_act: u32 = num_act_dict.values().sum();
             let mut encoded_dist = Array1::<f32>::zeros((8 * 8 * 73,));
 
@@ -91,7 +96,7 @@ fn encode_steps(
                 encoded_dist.unbind().into_any(),
                 move_indices.unbind(),
             ));
-            board_state.next(mov);
+            board_state.next(next_mov);
         }
     });
 
@@ -143,12 +148,12 @@ fn play_new(checkpoint: &str) -> PyResult<PyObject> {
         parent: None,
         children: Vec::new(),
     });
-    let state = ChessEngineState {
+    let state = RefCell::new(ChessEngineState {
         chess: chess,
         board: board,
         root: root,
         cursor: cursor,
-    };
+    });
 
     Python::with_gil(|py| {
         let capsule = PyCapsule::new(py, state, None).unwrap();
@@ -159,7 +164,7 @@ fn play_new(checkpoint: &str) -> PyResult<PyObject> {
 #[pyfunction]
 fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<ChessEngineState>() };
+        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         mcts::mcts(
             &state.chess, state.cursor.arc(), &state.board, rollout, Some(cpuct)
         );
@@ -167,9 +172,19 @@ fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
 }
 
 #[pyfunction]
-fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject)>{
+fn play_step(state: Py<PyCapsule>, temp: f32) {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<ChessEngineState>() };
+        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow_mut() };
+        let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
+        mcts::step(&mut *cursor, &mut *board, temp);
+    })
+}
+
+#[pyfunction]
+fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)>{
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
+        let board = Py::clone_ref(&state.board.python_object, py);
         let node = state.cursor.current();
         let q_value = node.q_value;
         let num_act_children: Vec<(chess::Move, i32, f32)> = node
@@ -181,16 +196,28 @@ fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject)>{
             })
             .collect();
 
+        let mut move_stack: Vec<chess::Move> = Vec::new();
+        let mut pointer = state.cursor.clone();
+        loop {
+            let mov = pointer.current().step.0;
+            if mov.is_none() {
+                break;
+            }
+            move_stack.push(mov.unwrap());
+            pointer.navigate_up();
+        }
+
+        let m = move_stack.into_pyobject(py).unwrap().unbind().into_any();
         let q = q_value.into_pyobject(py).unwrap().unbind().into_any();
         let a = num_act_children.into_pyobject(py).unwrap().unbind().into_any();
-        Ok((q, a))
+        Ok((board, m, q, a))
     })
 }
 
 #[pyfunction]
 fn play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<ChessEngineState>() };
+        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         let json = serde_json::to_string(&*state.root.borrow()).unwrap();
         let json_module = py.import("json")?;
         let ret = json_module.getattr("loads")?.call1((json,))?.unbind();
@@ -208,6 +235,7 @@ fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encode_steps, m)?)?;
     m.add_function(wrap_pyfunction!(play_new, m)?)?;
     m.add_function(wrap_pyfunction!(play_mcts, m)?)?;
+    m.add_function(wrap_pyfunction!(play_step, m)?)?;
     m.add_function(wrap_pyfunction!(play_inspect, m)?)?;
     m.add_function(wrap_pyfunction!(play_dump_search_tree, m)?)?;
     Ok(())
