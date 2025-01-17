@@ -8,7 +8,7 @@ from multiprocessing import Pool
 import numpy as np
 import chess
 import torch
-from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data import ConcatDataset, DataLoader, random_split
 import torch.nn.functional as F
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
@@ -92,13 +92,16 @@ class ChessLightningModule(L.LightningModule):
         )
         return loss1 + self.config["loss_weight"] * loss2
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        prefix = "val_syn" if dataloader_idx == 0 else "val_real"
         boards, dist, outcome = batch
         dist_pred, value_pred = self.model(boards)
         loss1 = self.compute_loss1(dist_pred, dist)
         loss2 = self.compute_loss2(value_pred, outcome)
         loss = loss1 + self.config["loss_weight"] * loss2
-        self.log_dict({"val_loss1": loss1, "val_loss2": loss2, "val_loss": loss})
+        self.log_dict(
+            {f"{prefix}_loss1": loss1, f"{prefix}_loss2": loss2, f"{prefix}_loss": loss}
+        )
         return loss
 
     def configure_optimizers(self):
@@ -107,17 +110,14 @@ class ChessLightningModule(L.LightningModule):
         )
         # return optimizer
 
-        # from torch.optim.lr_scheduler import OneCycleLR
-        from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+        from torch.optim.lr_scheduler import OneCycleLR
 
-        scheduler = CosineAnnealingWarmRestarts(
+        scheduler = OneCycleLR(
             optimizer=optimizer,
-            eta_min=1e-5,
-            T_0=100,
-            T_mult=1,
-            # max_lr=self.config["lr"],
-            # total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+            max_lr=self.config["lr"],
+            total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
         )
+
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
@@ -143,9 +143,12 @@ class ModelCheckpointAtEpochEnd(Callback):
         if epoch < self.start or epoch >= self.end or (epoch + 1) % self.interval != 0:
             return
 
+        val_loss1 = callback_metrics["val_syn_loss1/dataloader_idx_0"].item()
+        val_loss2 = callback_metrics["val_syn_loss2/dataloader_idx_0"].item()
+
         path = os.path.join(
             trainer.log_dir,
-            f"epoch:{epoch}-val_loss:{callback_metrics['val_loss']:0.3f}.ckpt",
+            f"epoch:{epoch}-{val_loss1:0.3f}-{val_loss2:0.3f}.ckpt",
         )
         print("saving checkpoint: ", path)
 
@@ -211,15 +214,25 @@ def main():
     # [ChessDataset(f) for f in args.trace_file]
     dss = ConcatDataset(dss)
 
+    train_split, val_syn_split = random_split(dss, [0.8, 0.2])
+
     train_loader = DataLoader(
-        dss,
+        train_split,
         num_workers=4,
         batch_size=args.train_batch_size,
         shuffle=True,
         drop_last=True,
     )
 
-    val_loader = DataLoader(
+    val_syn = DataLoader(
+        val_syn_split,
+        num_workers=4,
+        batch_size=8,
+        shuffle=False,
+        drop_last=True,
+    )
+
+    val_real = DataLoader(
         ValidationDataset(args.val_data),
         num_workers=4,
         batch_size=8,
@@ -249,11 +262,13 @@ def main():
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
         log_every_n_steps=5,
-        precision="16-mixed",
-        # val_check_interval=10,
+        # precision="16-mixed",
+        #  val_check_interval=20,
     )
     trainer.fit(
-        model=module, train_dataloaders=train_loader, val_dataloaders=val_loader
+        model=module,
+        train_dataloaders=train_loader,
+        val_dataloaders=[val_syn, val_real],
     )
 
     # m = module.model._orig_mod if compile_model else module.model
