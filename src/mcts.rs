@@ -5,6 +5,7 @@ use rand_distr::{Dirichlet, Distribution};
 use serde::{Serialize, Serializer};
 use serde::ser::{SerializeStruct, SerializeSeq};
 use std::iter::Sum;
+use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
 use std::cell::{RefCell, Ref, RefMut};
 
@@ -52,6 +53,7 @@ impl<T: Serialize> Serialize for Node<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct Cursor<T>(ArcRefNode<T>);
 
 fn uct(
@@ -83,12 +85,13 @@ where
         .map(|p| p.0);
 }
 
-fn backward<T>(path: &Vec<ArcRefNode<T>>, reward: f32)
+fn backward<T>(path: &VecDeque<ArcRefNode<T>>, reward: f32)
 where
     T: std::fmt::Debug,
 {
     for node in path {
         let mut v: RefMut<'_, _> = node.borrow_mut();
+        v.num_act += 1;
         v.q_value += reward;
     }
 
@@ -121,7 +124,7 @@ fn select<'a, G, S>(
     state: &mut S,
     cpuct: f32,
     noise: &Option<Vec<f64>>,
-) -> (Vec<ArcRefNode<S::Step>>, Vec<S::Step>, f32)
+) -> (VecDeque<ArcRefNode<S::Step>>, Vec<S::Step>, f32)
 where
     G: Game<S>,
     S: State,
@@ -129,16 +132,12 @@ where
 {
     //Descend in the tree until some leaf, exploiting the knowledge to choose
     //the best child each time.
-    let mut path: Vec<ArcRefNode<S::Step>> = vec![node.clone()];
+    let mut path: VecDeque<ArcRefNode<S::Step>> = VecDeque::from([node.clone()]);
 
     loop {
         let (recent_node, path_len) = {
-            (path.last().unwrap().clone(), path.len())
+            (path.back().unwrap().clone(), path.len())
         };
-
-        {
-            (*recent_node.borrow_mut()).num_act += 1;
-        }
 
         let (steps, prior, outcome) = game.predict(&recent_node, &state, false);
         let reverse_q = game.reverse_q(&recent_node);
@@ -146,16 +145,23 @@ where
 
         if children.is_empty() || steps.is_empty() {
             // either game is end or yet to be explored
+            // the path is the from root (the current play) to the leaf where
+            // all are what have been explored.
+            // NOTE:act_num update of the root is not increased.
+            // later, the root will also be skipped for the reward.
+            // but we keep it in the path because it might be the only node
+            // (that have been explored), and we will expand the tree from
+            // there
             return (path, steps, outcome);
         }
 
         let best_child = if children.len() == 1 {
             &children[0]
         } else {
-            let is_root = path_len > 1;
-            let prior_rand: Vec<f32> = match (is_root, noise) {
-                (false, _) => prior,
-                (_, None) => prior,
+            let is_root = path_len == 1;
+            let prior_rand: Vec<f32> = match (is_root, noise.as_ref()) {
+                (false, _) => prior.clone(),
+                (_, None) => prior.clone(),
                 (_, Some(noise)) => prior
                     .iter()
                     .zip(noise.iter())
@@ -178,12 +184,25 @@ where
                     )
                 })
                 .collect();
+            if uct_children.is_empty() || uct_children.iter().any(|v| !v.is_finite()) ||
+                uct_children.len() != children.len()
+            {
+                println!("path len: {}", path_len);
+                println!("len uct: {}", uct_children.len());
+                println!("len children: {}", children.len());
+                println!("len prior: {}", prior.len());
+                println!("len noise: {:?}", noise.as_ref().map(|v| v.len()));
+                println!("prior: {:?}", prior_rand);
+                println!("uct: {:?}", uct_children);
+                println!("sqrt total: {:?}", sqrt_total_num_vis);
+                panic!("!!!! CHECK the values.");
+            }
             let idx = find_max(uct_children.into_iter()).unwrap();
             &children[idx]
         };
 
         state.advance(&best_child.borrow().step);
-        path.push(best_child.clone());
+        path.push_back(best_child.clone());
     }
 }
 
@@ -209,7 +228,7 @@ where
         let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct, &noise);
 
         // path points at a leaf node, either game is done, or it isn't finished
-        let cur: &Arc<_> = path.last().unwrap();
+        let cur: &Arc<_> = path.back().unwrap();
         let depth = cur.borrow().depth;
         let children = steps
             .into_iter()
@@ -226,6 +245,8 @@ where
             .collect();
         cur.borrow_mut().children = children;
 
+        // skip the root (not participating the decision) for reward.
+        path.pop_front();
         backward(&mut path, reward);
     }
 }
@@ -265,6 +286,11 @@ where
     };
 
     cursor.navigate_down(choice);
+    // discarding the exploration of the sub-nodes. It isn't
+    // clearly said in AlphaZero's paper, but a restart helps
+    // the dirichlet noise to apply.
+    cursor.current_mut().children = vec![];
+
     let step = &cursor.current().step;
     State::advance(state, step);
     Some(*step)
