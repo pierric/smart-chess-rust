@@ -8,6 +8,7 @@ use numpy::array::{PyArray1, PyArray3};
 use numpy::PyArrayMethods;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
+use short_uuid::ShortUuid;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use c_str_macro::c_str;
@@ -79,7 +80,10 @@ inp = np.concatenate((encoded_boards, encoded_meta), axis=-1).astype(np.float32)
 inp = inp.transpose((2, 0, 1))
 inp = torch.from_numpy(inp[np.newaxis, :])
 with torch.no_grad():
-    ret_distr, ret_score = model(inp.to(device))
+    with torch.autocast(
+        device_type=device, dtype=torch.float16, cache_enabled=False
+    ):
+        ret_distr, ret_score = model(inp.to(device))
 ret_distr = ret_distr.detach().cpu().numpy().squeeze()
 ret_distr = np.exp(ret_distr)
 ret_score = ret_score.detach().cpu().item()
@@ -92,7 +96,7 @@ ret_score = ret_score.detach().cpu().item()
             ("model", model.bind(py)),
             ("device", PyString::new(py, device).as_any()),
         ].into_py_dict(py)?;
-        py.run(code, Some(&locals), None)?;
+        py.run(code, None, Some(&locals))?;
 
         let full_distr: Bound<'_, PyArray1<f32>> = locals
             .get_item("ret_distr")
@@ -260,15 +264,16 @@ fn call_ts_model(
     let encoded_boards =
         Tensor::try_from(boards)
             .unwrap()
-            .to_device_(device, tch::Kind::Float, true, false);
+            .to_device_(device, tch::Kind::BFloat16, true, false);
     let encoded_meta =
         Tensor::try_from(meta)
             .unwrap()
-            .to_device_(device, tch::Kind::Float, true, false);
+            .to_device_(device, tch::Kind::BFloat16, true, false);
 
     let inp = Tensor::cat(&[encoded_boards, encoded_meta], 2)
         .permute([2, 0, 1])
         .unsqueeze(0);
+    let inp_debug = inp.alias_copy();
     let out = model.forward_is(&[tch::jit::IValue::from(inp)]).unwrap();
     let (full_distr, score) = <(Tensor, Tensor)>::try_from(out).unwrap();
 
@@ -276,6 +281,16 @@ fn call_ts_model(
     // This must be in sync with that in training script
     let score = score.to_dtype(tch::Kind::Float, true, false);
     let score = f32::try_from(&score).unwrap();
+
+    if !score.is_finite() {
+        let uuid = ShortUuid::generate();
+        let filename = format!("/tmp/{}.tensor", uuid);
+        inp_debug.save(std::path::Path::new(&filename)).unwrap();
+        println!("Warning: score is bad {:?}", score);
+        println!("input tensor is saved as {}", filename);
+    }
+
+    let full_distr = full_distr.to_dtype(tch::Kind::Float, true, false);
 
     // rotate if the next move is black
     let encoded_moves: Vec<i64> = steps
@@ -335,6 +350,7 @@ fn _chess_ts_predict(
         .into_iter()
         .map(|m| (Some(m), !turn))
         .collect();
+
     return (next_steps, moves_distr, score);
 }
 

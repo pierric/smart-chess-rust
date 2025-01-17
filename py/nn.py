@@ -103,7 +103,7 @@ def chess_module_with(*, n_res_blocks):
 
 def _load_ckpt(model, checkpoint):
     print("..loading checkpoint: ", checkpoint)
-    r = model.load_state_dict(torch.load(checkpoint), strict=True)
+    r = model.load_state_dict(torch.load(checkpoint, weights_only=True), strict=True)
     if r.missing_keys:
         print("missing keys", r.missing_keys)
     if r.unexpected_keys:
@@ -220,4 +220,19 @@ def export_fp16(n_res_blocks=19, *, checkpoint=None, output):
     #     ir="torchscript",
     # )
 
+    torch.jit.save(model_jit, output)
+
+
+def export_bf16(n_res_blocks=19, *, checkpoint=None, output):
+    # assuming the model was trained with AMP
+    model = load_model(
+        n_res_blocks=n_res_blocks,
+        device="cuda",
+        checkpoint=checkpoint,
+        inference=True,
+        compile=False,
+    )
+    model.bfloat16()
+    model_jit = torch.jit.script(model)
+    model_jit = torch.jit.optimize_for_inference(model_jit)
     torch.jit.save(model_jit, output)

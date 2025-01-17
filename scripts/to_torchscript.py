@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--checkpoint", nargs="*", action="extend")
     parser.add_argument(
-        "-m", "--mode", choices=["amp", "ptq", "simple"], default="simple"
+        "-m", "--mode", choices=["bf16", "amp", "ptq", "simple"], default="simple"
     )
     parser.add_argument("-n", "--n-res-blocks", type=int, required=True)
     parser.add_argument("--calib", nargs="*")
@@ -22,6 +22,8 @@ def main():
         func = nn.export
     elif args.mode == "amp":
         func = nn.export_fp16
+    elif args.mode == "bf16":
+        func = nn.export_bf16
     elif args.mode == "ptq":
         func = partial(nn.export_ptq, calib=args.calib)
         ext = ".onnx"
