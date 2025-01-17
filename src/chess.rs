@@ -96,7 +96,7 @@ pub struct Outcome {
 }
 
 pub struct BoardState {
-    python_object: Py<PyAny>,
+    pub python_object: Py<PyAny>,
 }
 
 pub struct BoardHistory {
@@ -416,7 +416,7 @@ impl fmt::Display for Board {
 
 impl fmt::Display for BoardState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.python_object)
+        write!(f, "{}", self.fen())
     }
 }
 
@@ -452,7 +452,7 @@ impl Square {
     pub fn rotate(&self) -> Self {
         return Self {
             rank: 7 - self.rank,
-            file: 7 - self.file,
+            file: self.file,  // flipping the board really
         };
     }
 }
