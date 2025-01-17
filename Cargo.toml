@@ -40,6 +40,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 libloading = "0.8"
 once_cell = "1.19.0"
 c_str_macro = "1.0.3"
+short-uuid = "0.1.4"
 
 [profile.release]
 debug = true
