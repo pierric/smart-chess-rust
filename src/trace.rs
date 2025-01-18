@@ -23,7 +23,8 @@ impl Trace {
         });
 
         let mut file = File::create(filename).unwrap();
-        file.write_all(json.to_string().as_bytes()).unwrap();
+        let json_str = serde_json::to_string_pretty(&json).unwrap();
+        file.write_all(json_str.as_bytes()).unwrap();
     }
 
     #[allow(dead_code)]
