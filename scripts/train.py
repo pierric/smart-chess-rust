@@ -47,9 +47,9 @@ class ChessLightningModule(L.LightningModule):
                 compile=config["compile_model"],
             )
 
-    def compute_loss1(self, dist_pred, dist_gt):
+    def compute_loss1(self, log_dist_pred, dist_gt):
         batch_size = dist_gt.shape[0]
-        return -(dist_pred * dist_gt).sum() / batch_size
+        return -(log_dist_pred * dist_gt).sum() / batch_size
 
     def compute_loss2(self, value_pred, value_gt):
         batch_size = value_gt.shape[0]
@@ -59,8 +59,8 @@ class ChessLightningModule(L.LightningModule):
         boards, dist, outcome = batch
 
         if not isinstance(self.config["model_conf"], TransferConf):
-            dist_pred, value_pred = self.model(boards)
-            loss1 = self.compute_loss1(dist_pred, dist)
+            log_dist_pred, value_pred = self.model(boards)
+            loss1 = self.compute_loss1(log_dist_pred, dist)
             loss2 = self.compute_loss2(value_pred, outcome)
 
         else:
@@ -79,8 +79,8 @@ class ChessLightningModule(L.LightningModule):
                 (outcome_supervised, outcome_unsupervised), dim=0
             )
 
-            dist_pred, value_pred = self.model(boards)
-            loss1 = self.compute_loss1(dist_pred, dist_student)
+            log_dist_pred, value_pred = self.model(boards)
+            loss1 = self.compute_loss1(log_dist_pred, dist_student)
             loss2 = self.compute_loss2(value_pred, outcome_student)
 
         self.log_dict(
@@ -95,8 +95,8 @@ class ChessLightningModule(L.LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         prefix = "val_syn" if dataloader_idx == 0 else "val_real"
         boards, dist, outcome = batch
-        dist_pred, value_pred = self.model(boards)
-        loss1 = self.compute_loss1(dist_pred, dist)
+        log_dist_pred, value_pred = self.model(boards)
+        loss1 = self.compute_loss1(log_dist_pred, dist)
         loss2 = self.compute_loss2(value_pred, outcome)
         loss = loss1 + self.config["loss_weight"] * loss2
         self.log_dict(
@@ -105,27 +105,31 @@ class ChessLightningModule(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
-            self.parameters(), lr=self.config["lr"], weight_decay=1e-4
+        # optimizer = torch.optim.AdamW(
+        #    self.parameters(), lr=self.config["lr"], weight_decay=1e-4
+        # )
+
+        optimizer = torch.optim.SGD(
+            self.parameters(), lr=self.config["lr"], momentum=0.9, weight_decay=3e-5
         )
-        # return optimizer
+        return optimizer
 
-        from torch.optim.lr_scheduler import OneCycleLR
+        # from torch.optim.lr_scheduler import OneCycleLR
 
-        scheduler = OneCycleLR(
-            optimizer=optimizer,
-            max_lr=self.config["lr"],
-            total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
-        )
+        # scheduler = OneCycleLR(
+        #     optimizer=optimizer,
+        #     max_lr=self.config["lr"],
+        #     total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+        # )
 
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-                "frequency": 1,
-            },
-        }
+        # return {
+        #     "optimizer": optimizer,
+        #     "lr_scheduler": {
+        #         "scheduler": scheduler,
+        #         "interval": "step",
+        #         "frequency": 1,
+        #     },
+        # }
 
 
 class ModelCheckpointAtEpochEnd(Callback):
@@ -179,7 +183,8 @@ class TransferConf:
 def main():
     torch.set_float32_matmul_precision("medium")
     parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--trace-file", nargs="*", action="extend")
+    parser.add_argument("-t", "--trace-file-for-train", nargs="+", action="extend")
+    parser.add_argument("-v", "--trace-file-for-val", nargs="+", action="extend")
     parser.add_argument("-n", "--epochs", type=int, default=10)
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
@@ -194,7 +199,7 @@ def main():
 
     compile_model = True
 
-    if not args.trace_file:
+    if not args.trace_file_for_train:
         print("No trace file specified.")
         return
 
@@ -210,11 +215,10 @@ def main():
     ]
 
     with Pool(12) as p:
-        dss = p.map(ChessDataset, args.trace_file)
-    # [ChessDataset(f) for f in args.trace_file]
-    dss = ConcatDataset(dss)
+        dss = p.map(ChessDataset, args.trace_file_for_train)
+    train_split = ConcatDataset(dss)
 
-    train_split, val_syn_split = random_split(dss, [0.8, 0.2])
+    # train_split, val_syn_split = random_split(dss, [0.8, 0.2])
 
     train_loader = DataLoader(
         train_split,
@@ -223,6 +227,10 @@ def main():
         shuffle=True,
         drop_last=True,
     )
+
+    with Pool(12) as p:
+        dss = p.map(ChessDataset, args.trace_file_for_val)
+    val_syn_split = ConcatDataset(dss)
 
     val_syn = DataLoader(
         val_syn_split,
@@ -245,7 +253,8 @@ def main():
         epochs=args.epochs,
         steps_per_epoch=len(train_loader),
         lr=args.lr,
-        trace_files=args.trace_file,
+        trace_file_for_train=args.trace_file_for_train,
+        trace_file_for_val=args.trace_file_for_val,
         last_ckpt=args.last_ckpt,
         save_start=args.save_start,
         save_end=args.save_end,
