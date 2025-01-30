@@ -652,6 +652,18 @@ impl BoardState {
         })
     }
 
+    #[allow(dead_code)]
+    pub fn turn(&self) -> Color {
+        Python::with_gil(|py| {
+            self.python_object
+                .getattr(py, intern!(py, "turn"))
+                .unwrap()
+                .extract::<i32>(py)
+                .unwrap()
+                .into()
+        })
+    }
+
     pub fn to_board(&self) -> Board {
         Python::with_gil(|py| self.python_object.extract(py).unwrap())
     }

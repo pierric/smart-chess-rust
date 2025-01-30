@@ -6,7 +6,8 @@ import chess.pgn
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, ConcatDataset
+
 
 import libsmartchess
 
@@ -30,9 +31,11 @@ def _get_outcome(res):
 def _prepare(boards, meta, dist, outcome):
     inp = np.concatenate((boards, meta), axis=-1).astype(np.float32)
     inp = inp.transpose((2, 0, 1))
+
     # turn = meta[0, 0, 0]
     # if turn == 0:
     #    outcome = -outcome
+
     return (
         torch.from_numpy(inp),
         torch.from_numpy(dist),
@@ -42,8 +45,16 @@ def _prepare(boards, meta, dist, outcome):
 
 class ChessDataset(Dataset):
     def __init__(self, trace_file, apply_mirror=False):
-        with open(trace_file, "r") as f:
-            trace = json.load(f)
+        if isinstance(trace_file, dict):
+            trace = trace_file
+
+        elif isinstance(trace_file, io.TextIOBase):
+            trace = json.load(trace_file)
+
+        else:
+            assert isinstance(trace_file, str)
+            with open(trace_file, "r") as f:
+                trace = json.load(f)
 
         self.outcome = _get_outcome(trace["outcome"])
 
@@ -70,6 +81,47 @@ class ChessDataset(Dataset):
 
 
 class ValidationDataset(Dataset):
+    def __init__(self, csv_file):
+        df = pd.read_csv(csv_file).iloc[:10]
+        traces = [self._to_trace(m, w) for m, w in zip(df.moves, df.winner)]
+        self.dataset = ConcatDataset([ChessDataset(t) for t in traces])
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        return self.dataset[idx]
+
+    def _to_trace(self, pgn, winner):
+        node = chess.pgn.read_game(io.StringIO(pgn))
+        steps = []
+
+        while node:
+            num_acts = {m: 0 for m in node.board().legal_moves}
+            node = node.next()
+
+            if node is None:
+                break
+
+            move = node.move
+            num_acts[node.move] = 1
+            steps.append(
+                (move.uci(), 0.0, [(m.uci(), c, 0.0) for m, c in num_acts.items()])
+            )
+
+        outcome = {
+            "white": "White",
+            "black": "Black",
+            "draw": None,
+        }
+
+        return {
+            "outcome": {"winner": outcome[winner]},
+            "steps": steps,
+        }
+
+
+class ValidationDataset2(Dataset):
     def __init__(self, csv_file):
         df = pd.read_csv(csv_file).iloc[:10]
         self.plays = [self._encode(p) for p in df.moves]

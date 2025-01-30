@@ -258,6 +258,7 @@ fn call_ts_model(
     meta: Array3<i32>,
     turn: Color,
     steps: &Vec<Move>,
+    return_full_distr: bool,
 ) -> (Vec<f32>, f32) {
     use tch::Tensor;
 
@@ -292,6 +293,11 @@ fn call_ts_model(
 
     let full_distr = full_distr.to_dtype(tch::Kind::Float, true, false);
 
+    if return_full_distr {
+        let moves_distr = Vec::<f32>::try_from(full_distr.squeeze().exp()).unwrap();
+        return (moves_distr, score)
+    }
+
     // rotate if the next move is black
     let encoded_moves: Vec<i64> = steps
         .iter()
@@ -309,18 +315,12 @@ fn call_ts_model(
     (moves_distr, score)
 }
 
-#[cached(
-    type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
-    create = "{ SizedCache::with_size(10000) }",
-    convert = r#"{
-        (argmax, state.move_stack(), node.borrow().step.1)
-    }"#
-)]
-fn _chess_ts_predict(
+pub fn _chess_ts_predict(
     chess: &ChessTS,
     node: &ArcRefNode<(Option<Move>, Color)>,
     state: &BoardState,
     argmax: bool,
+    return_full_distr: bool,
 ) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
     let legal_moves = state.legal_moves();
 
@@ -336,6 +336,8 @@ fn _chess_ts_predict(
     let (encoded_boards, encoded_meta) = _encode(&node, state);
     let turn = node.borrow().step.1;
 
+    assert!(turn == state.turn());
+
     let (moves_distr, score) = call_ts_model(
         &chess.model,
         chess.device,
@@ -343,6 +345,7 @@ fn _chess_ts_predict(
         encoded_meta,
         turn,
         &legal_moves,
+        return_full_distr,
     );
 
     let moves_distr = _post_process_distr(moves_distr, argmax);
@@ -361,7 +364,7 @@ impl Game<BoardState> for ChessTS {
         state: &BoardState,
         argmax: bool,
     ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
-        _chess_ts_predict(self, node, state, argmax)
+        _chess_ts_predict(self, node, state, argmax, false)
     }
 
     fn reverse_q(&self, node: &ArcRefNode<<BoardState as State>::Step>) -> bool {

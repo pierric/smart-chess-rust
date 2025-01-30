@@ -324,7 +324,14 @@ fn main() {
         //    Ok(_) => (),
         //}
     }
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    if args.black_checkpoint != "<not-specified>" {
+        args.black_type = Opponent::NN;
+        args.black_device = args.white_device.clone();
+    }
+    let args = args;
+
     let _ = create_dir("replay");
 
     let mut trace = trace::Trace::new();

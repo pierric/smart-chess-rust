@@ -1,6 +1,6 @@
 use crate::game::{Game, State};
 use rand::distributions::WeightedIndex;
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use rand_distr::{Dirichlet, Distribution};
 use serde::{Serialize, Serializer};
 use serde::ser::{SerializeStruct, SerializeSeq};
@@ -270,14 +270,10 @@ where
 
     let choice: usize = if temp == 0.0 {
         let max = num_act_vec.iter().max().unwrap();
-        let indices: Vec<usize> = num_act_vec
+        num_act_vec
             .iter()
-            .enumerate()
-            .filter(|a| a.1 == max)
-            .map(|a| a.0)
-            .collect();
-        let n: usize = thread_rng().gen_range(0..indices.len());
-        indices[n]
+            .position(|v| v == max)
+            .unwrap()
     } else {
         let power = 1.0 / temp;
         let weights =

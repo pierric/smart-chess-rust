@@ -225,6 +225,19 @@ fn play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
     })
 }
 
+#[pyfunction]
+fn play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject, PyObject, PyObject)> {
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
+
+        let (steps, prior, outcome) = game::_chess_ts_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
+        let steps = steps.into_pyobject(py)?.unbind().into_any();
+        let prior = prior.into_pyobject(py)?.unbind().into_any();
+        let outcome = outcome.into_pyobject(py)?.unbind().into_any();
+        Ok((steps, prior, outcome))
+    })
+}
+
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
@@ -238,5 +251,6 @@ fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(play_step, m)?)?;
     m.add_function(wrap_pyfunction!(play_inspect, m)?)?;
     m.add_function(wrap_pyfunction!(play_dump_search_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(play_inference, m)?)?;
     Ok(())
 }

@@ -112,24 +112,24 @@ class ChessLightningModule(L.LightningModule):
         optimizer = torch.optim.SGD(
             self.parameters(), lr=self.config["lr"], momentum=0.9, weight_decay=3e-5
         )
-        return optimizer
+        # return optimizer
 
-        # from torch.optim.lr_scheduler import OneCycleLR
+        from torch.optim.lr_scheduler import OneCycleLR
 
-        # scheduler = OneCycleLR(
-        #     optimizer=optimizer,
-        #     max_lr=self.config["lr"],
-        #     total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
-        # )
+        scheduler = OneCycleLR(
+            optimizer=optimizer,
+            max_lr=self.config["lr"],
+            total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+        )
 
-        # return {
-        #     "optimizer": optimizer,
-        #     "lr_scheduler": {
-        #         "scheduler": scheduler,
-        #         "interval": "step",
-        #         "frequency": 1,
-        #     },
-        # }
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "frequency": 1,
+            },
+        }
 
 
 class ModelCheckpointAtEpochEnd(Callback):
@@ -140,19 +140,19 @@ class ModelCheckpointAtEpochEnd(Callback):
         self.interval = interval
         self.model_compiled = model_compiled
 
-    def on_train_epoch_end(self, trainer, pl_module):
-        epoch = trainer.current_epoch
+    def on_validation_end(self, trainer, pl_module):
+        step = trainer.global_step
         callback_metrics = trainer.callback_metrics
 
-        if epoch < self.start or epoch >= self.end or (epoch + 1) % self.interval != 0:
+        if step < self.start or step >= self.end or (step + 1) % self.interval != 0:
             return
 
         val_loss1 = callback_metrics["val_syn_loss1/dataloader_idx_0"].item()
         val_loss2 = callback_metrics["val_syn_loss2/dataloader_idx_0"].item()
 
         path = os.path.join(
-            trainer.log_dir,
-            f"epoch:{epoch}-{val_loss1:0.3f}-{val_loss2:0.3f}.ckpt",
+            trainer.log_dir or ".",
+            f"step:{step}-{val_loss1:0.3f}-{val_loss2:0.3f}.ckpt",
         )
         print("saving checkpoint: ", path)
 
@@ -189,7 +189,7 @@ def main():
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
-    parser.add_argument("--save-every-k", type=int, default=10)
+    parser.add_argument("--save-every-k", type=int, default=1)
     parser.add_argument("--save-start", type=int, default=10)
     parser.add_argument("--save-end", type=int, default=100)
     parser.add_argument("--model-conf", type=str, default=None)
@@ -270,9 +270,9 @@ def main():
         logger=logger,
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
-        log_every_n_steps=5,
+        log_every_n_steps=2,
         # precision="16-mixed",
-        #  val_check_interval=20,
+        val_check_interval=5,
     )
     trainer.fit(
         model=module,
@@ -280,8 +280,8 @@ def main():
         val_dataloaders=[val_syn, val_real],
     )
 
-    # m = module.model._orig_mod if compile_model else module.model
-    # torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
+    m = module.model._orig_mod if compile_model else module.model
+    torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
 
 
 if __name__ == "__main__":

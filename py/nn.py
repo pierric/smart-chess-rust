@@ -34,7 +34,7 @@ class ChessModuleBase(torch.nn.Module):
         # 8 boards (14 channels each) + meta (7 channels)
         self.conv_block = torch.nn.Sequential(
             torch.nn.Conv2d(
-                14 * 8 + 7, 256, kernel_size=3, stride=1, padding=1, bias=False
+                14 * 8 + 7, 256, kernel_size=5, stride=1, padding=2, bias=False
             ),
             torch.nn.BatchNorm2d(256),
             torch.nn.ReLU(inplace=False),
@@ -52,20 +52,24 @@ class ChessModuleBase(torch.nn.Module):
             # torch.nn.ReLU(inplace=False),
             # torch.nn.Linear(64, 1),
             # torch.nn.Tanh(),
-            torch.nn.Conv2d(256, 32, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(32),
+            torch.nn.Conv2d(256, 512, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(512),
+            torch.nn.Dropout2d(p=0.5),
+            torch.nn.AdaptiveAvgPool2d((1, 1)),
             torch.nn.Flatten(),
-            torch.nn.Linear(32 * 8 * 8, 128),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Linear(128, 1),
+            # torch.nn.Dropout(p=0.5),
+            torch.nn.Linear(512, 1),
+            # torch.nn.ReLU(inplace=True),
+            # torch.nn.Linear(128, 1),
             torch.nn.Tanh(),
         )
 
         self.policy_head = torch.nn.Sequential(
             torch.nn.Conv2d(256, 128, kernel_size=1, bias=False),
             torch.nn.BatchNorm2d(128),
-            torch.nn.ReLU(inplace=True),
             torch.nn.Flatten(),
+            # torch.nn.Dropout(p=0.5),
+            torch.nn.ReLU(inplace=True),
             torch.nn.Linear(8 * 8 * 128, 8 * 8 * 73),
         )
 
