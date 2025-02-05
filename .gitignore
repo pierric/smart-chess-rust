@@ -28,3 +28,12 @@ replay/
 *.svg
 *.out
 *.data
+
+tb_logs/
+tmp/
+
+*.pftrace
+
+full_list
+listval
+list

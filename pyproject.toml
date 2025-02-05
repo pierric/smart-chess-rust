@@ -3,7 +3,7 @@ package-mode = false
 
 [[tool.poetry.source]]
 name = "pytorch-rocm"
-url = "https://download.pytorch.org/whl/rocm6.2"
+url = "https://download.pytorch.org/whl/rocm6.2.4"
 priority = "explicit"
 
 [tool.poetry.dependencies]
@@ -16,9 +16,9 @@ onnx = "^1.15.0"
 sympy = "^1.12"
 tensorboard = "^2.15.1"
 #tensorrt = "^10.0"
-torch = { version = "~2.5", source = "pytorch-rocm" }
-torchvision = { version = "~0.20", source = "pytorch-rocm" }
-pytorch-triton-rocm = { version = "~3.1.0", source = "pytorch-rocm" }
+torch = { version = "2.6.0", source = "pytorch-rocm" }
+torchvision = { version = "0.21.0", source = "pytorch-rocm" }
+pytorch-triton-rocm = { version = "3.2.0", source = "pytorch-rocm" }
 #torch-tensorrt = { url = "https://download.pytorch.org/whl/cu121/torch_tensorrt-2.3.0%2Bcu121-cp312-cp312-linux_x86_64.whl" }
 pandas = "^2.2.3"
 ipython = "^8.31.0"
