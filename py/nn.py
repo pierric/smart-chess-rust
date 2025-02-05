@@ -52,13 +52,13 @@ class ChessModuleBase(torch.nn.Module):
             # torch.nn.ReLU(inplace=False),
             # torch.nn.Linear(64, 1),
             # torch.nn.Tanh(),
-            torch.nn.Conv2d(256, 512, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(512),
-            torch.nn.Dropout2d(p=0.5),
-            torch.nn.AdaptiveAvgPool2d((1, 1)),
+            torch.nn.Conv2d(256, 64, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(64),
+            # torch.nn.Dropout2d(p=0.5),
+            torch.nn.AvgPool2d(kernel_size=8),
             torch.nn.Flatten(),
             # torch.nn.Dropout(p=0.5),
-            torch.nn.Linear(512, 1),
+            torch.nn.Linear(64, 1),
             # torch.nn.ReLU(inplace=True),
             # torch.nn.Linear(128, 1),
             torch.nn.Tanh(),
@@ -236,7 +236,19 @@ def export_bf16(n_res_blocks=19, *, checkpoint=None, output):
         inference=True,
         compile=False,
     )
-    model.bfloat16()
-    model_jit = torch.jit.script(model)
-    model_jit = torch.jit.optimize_for_inference(model_jit)
+    # model.bfloat16()
+    # model_jit = torch.jit.script(model)
+    # model_jit = torch.jit.optimize_for_inference(model_jit)
+
+    x = torch.randn(1, 119, 8, 8, dtype=torch.bfloat16).cuda()
+
+    with torch.no_grad():
+        # cache_enabled is critical to "trace" to the model
+        # "script" works fine only for the non-amp model
+        with torch.autocast(
+            device_type="cuda", dtype=torch.bfloat16, cache_enabled=False
+        ):
+            model_jit = torch.jit.trace(model, [x])
+            model_jit = torch.jit.optimize_for_inference(model_jit)
+
     torch.jit.save(model_jit, output)
