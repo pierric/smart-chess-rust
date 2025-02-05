@@ -98,11 +98,21 @@ class ChessLightningModule(L.LightningModule):
         log_dist_pred, value_pred = self.model(boards)
         loss1 = self.compute_loss1(log_dist_pred, dist)
         loss2 = self.compute_loss2(value_pred, outcome)
-        loss = loss1 + self.config["loss_weight"] * loss2
-        self.log_dict(
-            {f"{prefix}_loss1": loss1, f"{prefix}_loss2": loss2, f"{prefix}_loss": loss}
-        )
-        return loss
+
+        loss1, loss2 = self.all_gather([loss1, loss2])
+        if self.trainer.is_global_zero:
+            loss1 = loss1.mean(dim=0)
+            loss2 = loss2.mean(dim=0)
+            loss = loss1 + self.config["loss_weight"] * loss2
+            self.log_dict(
+                {
+                    f"{prefix}_loss1": loss1,
+                    f"{prefix}_loss2": loss2,
+                    f"{prefix}_loss": loss,
+                }
+            )
+
+        self.trainer.strategy.barrier()
 
     def configure_optimizers(self):
         # optimizer = torch.optim.AdamW(
@@ -112,7 +122,7 @@ class ChessLightningModule(L.LightningModule):
         optimizer = torch.optim.SGD(
             self.parameters(), lr=self.config["lr"], momentum=0.9, weight_decay=3e-5
         )
-        # return optimizer
+        return optimizer
 
         from torch.optim.lr_scheduler import OneCycleLR
 
@@ -235,7 +245,7 @@ def main():
     val_syn = DataLoader(
         val_syn_split,
         num_workers=4,
-        batch_size=8,
+        batch_size=128,
         shuffle=False,
         drop_last=True,
     )
@@ -243,7 +253,7 @@ def main():
     val_real = DataLoader(
         ValidationDataset(args.val_data),
         num_workers=4,
-        batch_size=8,
+        batch_size=128,
         shuffle=False,
         drop_last=True,
     )
@@ -270,9 +280,9 @@ def main():
         logger=logger,
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
-        log_every_n_steps=2,
+        log_every_n_steps=10,
         # precision="16-mixed",
-        val_check_interval=5,
+        val_check_interval=20,
     )
     trainer.fit(
         model=module,
