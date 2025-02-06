@@ -1,7 +1,5 @@
 use crate::chess::{get_board_from_moves, BoardHistory, BoardState, Color, Move};
 use crate::mcts::{Cursor, ArcRefNode};
-use cached::proc_macro::cached;
-use cached::SizedCache;
 use ndarray::Array3;
 use numpy::{PyArray};
 use numpy::array::{PyArray1, PyArray3};
@@ -9,8 +7,7 @@ use numpy::PyArrayMethods;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyString};
 use short_uuid::ShortUuid;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use tch::Tensor;
 use c_str_macro::c_str;
 
 pub const LOOKBACK: usize = 8;
@@ -27,6 +24,11 @@ where
     ) -> (Vec<S::Step>, Vec<f32>, f32);
 
     fn reverse_q(&self, node: &ArcRefNode<S::Step>) -> bool;
+}
+
+pub trait TchModel {
+    fn forward(&self, input: Tensor) -> (Tensor, Tensor);
+    fn device(&self) -> tch::Device;
 }
 
 pub trait State {
@@ -46,23 +48,17 @@ pub struct ChessTS {
     pub device: tch::Device,
 }
 
+pub struct ChessEP {
+    pub model: aotinductor::ModelPackage,
+    pub device: tch::Device,
+}
+
 /*
 pub struct ChessOnnx {
     pub session: ort::Session,
 }
 */
 
-#[cached(
-    type = "SizedCache<(String, Color, u64), (Vec<f32>, f32)>",
-    create = "{ SizedCache::with_size(5000) }",
-    convert = r#"{
-        let mut hasher = DefaultHasher::new();
-        boards.hash(&mut hasher);
-        meta.hash(&mut hasher);
-        steps.hash(&mut hasher);
-        (String::from(device), turn, hasher.finish())
-    }"#
-)]
 fn call_py_model(
     model: &Py<PyAny>,
     device: &str,
@@ -191,13 +187,6 @@ fn _post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32> {
     }
 }
 
-#[cached(
-    type = "SizedCache<(bool, Vec<Move>, Color), (Vec<(Option<Move>, Color)>, Vec<f32>, f32)>",
-    create = "{ SizedCache::with_size(5000) }",
-    convert = r#"{
-        (argmax, state.move_stack(), node.borrow().step.1)
-    }"#
-)]
 fn _chess_predict(
     chess: &Chess,
     node: &ArcRefNode<(Option<Move>, Color)>,
@@ -251,17 +240,7 @@ impl Game<BoardState> for Chess {
     }
 }
 
-fn call_ts_model(
-    model: &tch::CModule,
-    device: tch::Device,
-    boards: Array3<i32>,
-    meta: Array3<i32>,
-    turn: Color,
-    steps: &Vec<Move>,
-    return_full_distr: bool,
-) -> (Vec<f32>, f32) {
-    use tch::Tensor;
-
+fn _prepare_tensors(boards: Array3<i32>, meta: Array3<i32>, device: tch::Device) -> Tensor {
     let encoded_boards =
         Tensor::try_from(boards)
             .unwrap()
@@ -271,60 +250,53 @@ fn call_ts_model(
             .unwrap()
             .to_device_(device, tch::Kind::BFloat16, true, false);
 
-    let inp = Tensor::cat(&[encoded_boards, encoded_meta], 2)
+    Tensor::cat(&[encoded_boards, encoded_meta], 2)
         .permute([2, 0, 1])
-        .unsqueeze(0);
-    let inp_debug = inp.alias_copy();
-    let out = model.forward_is(&[tch::jit::IValue::from(inp)]).unwrap();
-    let (full_distr, score) = <(Tensor, Tensor)>::try_from(out).unwrap();
-
-    // how good is the current board for the next player (turn)
-    // This must be in sync with that in training script
-    let score = score.to_dtype(tch::Kind::Float, true, false);
-    let score = f32::try_from(&score).unwrap();
-
-    if !score.is_finite() {
-        let uuid = ShortUuid::generate();
-        let filename = format!("/tmp/{}.tensor", uuid);
-        inp_debug.save(std::path::Path::new(&filename)).unwrap();
-        println!("Warning: score is bad {:?}", score);
-        println!("input tensor is saved as {}", filename);
-    }
-
-    let full_distr = full_distr.to_dtype(tch::Kind::Float, true, false);
-
-    if return_full_distr {
-        let moves_distr = Vec::<f32>::try_from(full_distr.squeeze().exp()).unwrap();
-        return (moves_distr, score)
-    }
-
-    // rotate if the next move is black
-    let encoded_moves: Vec<i64> = steps
-        .iter()
-        .map(|m| {
-            if turn == Color::Black {
-                m.rotate().encode() as i64
-            } else {
-                m.encode() as i64
-            }
-        })
-        .collect();
-    let encoded_moves = Tensor::from_slice(&encoded_moves).to_device(device);
-    let moves_distr = Vec::<f32>::try_from(full_distr.take(&encoded_moves).exp()).unwrap();
-
-    (moves_distr, score)
+        .unsqueeze(0)
 }
 
-pub fn _chess_ts_predict(
-    chess: &ChessTS,
+fn _get_score(model_score_output: Tensor) -> f32 {
+    // how good is the current board for the next player (turn)
+    // This must be in sync with that in training script
+    let score = model_score_output.to_dtype(tch::Kind::Float, true, false);
+    f32::try_from(&score).unwrap()
+}
+
+fn _get_move_distribution(model_distr_output: Tensor, turn: Color, legal_moves: &Vec<Move>, return_full: bool) -> Vec<f32> {
+    let full_distr = model_distr_output.to_dtype(tch::Kind::Float, true, false).to_device(tch::Device::Cpu);
+
+    if return_full {
+        Vec::<f32>::try_from(full_distr.squeeze().exp()).unwrap()
+    }
+    else {
+        // rotate if the next move is black
+        let encoded_moves: Vec<i64> = legal_moves
+            .iter()
+            .map(|m| {
+                if turn == Color::Black {
+                    m.rotate().encode() as i64
+                } else {
+                    m.encode() as i64
+                }
+            })
+            .collect();
+        let encoded_moves = Tensor::from_slice(&encoded_moves);
+        Vec::<f32>::try_from(full_distr.take(&encoded_moves).exp()).unwrap()
+    }
+}
+
+pub fn chess_tch_predict<M: TchModel>(
+    chess: &M,
     node: &ArcRefNode<(Option<Move>, Color)>,
     state: &BoardState,
     argmax: bool,
     return_full_distr: bool,
 ) -> (Vec<(Option<Move>, Color)>, Vec<f32>, f32) {
+
     let legal_moves = state.legal_moves();
 
     if legal_moves.is_empty() {
+        // the model always tell the score at the white side
         let outcome = match state.outcome().unwrap().winner {
             None => 0.0,
             Some(Color::White) => 1.0,
@@ -338,23 +310,41 @@ pub fn _chess_ts_predict(
 
     assert!(turn == state.turn());
 
-    let (moves_distr, score) = call_ts_model(
-        &chess.model,
-        chess.device,
-        encoded_boards,
-        encoded_meta,
-        turn,
-        &legal_moves,
-        return_full_distr,
-    );
+    let inp = _prepare_tensors(encoded_boards, encoded_meta, chess.device());
+    let inp_debug = inp.alias_copy();
 
+    let (full_distr, score) = chess.forward(inp);
+
+    let score = _get_score(score);
+
+    if !score.is_finite() {
+        let uuid = ShortUuid::generate();
+        let filename = format!("/tmp/{}.tensor", uuid);
+        inp_debug.save(std::path::Path::new(&filename)).unwrap();
+        println!("Warning: score is bad {:?}", score);
+        println!("input tensor is saved as {}", filename);
+    }
+
+    let moves_distr = _get_move_distribution(full_distr, turn, &legal_moves, return_full_distr);
     let moves_distr = _post_process_distr(moves_distr, argmax);
+
     let next_steps = legal_moves
         .into_iter()
         .map(|m| (Some(m), !turn))
         .collect();
 
     return (next_steps, moves_distr, score);
+}
+
+impl TchModel for ChessTS {
+    fn forward(&self, inp: Tensor) -> (Tensor, Tensor) {
+        let out = self.model.forward_is(&[tch::jit::IValue::from(inp)]).unwrap();
+        <(Tensor, Tensor)>::try_from(out).unwrap()
+    }
+
+    fn device(&self) -> tch::Device {
+        self.device
+    }
 }
 
 impl Game<BoardState> for ChessTS {
@@ -364,7 +354,38 @@ impl Game<BoardState> for ChessTS {
         state: &BoardState,
         argmax: bool,
     ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
-        _chess_ts_predict(self, node, state, argmax, false)
+        chess_tch_predict(self, node, state, argmax, false)
+    }
+
+    fn reverse_q(&self, node: &ArcRefNode<<BoardState as State>::Step>) -> bool {
+        // the chess model is expected to return the reward for the white player.
+        node.borrow().step.1 == Color::Black
+    }
+}
+
+impl TchModel for ChessEP {
+    fn forward(&self, inp: Tensor) -> (Tensor, Tensor) {
+        let outs = self.model.run(&vec![inp]);
+        assert!(outs.len() == 2);
+        let mut iter = outs.into_iter();
+        let r1 = iter.next().unwrap();
+        let r2 = iter.next().unwrap();
+        (r1, r2)
+    }
+
+    fn device(&self) -> tch::Device {
+        self.device
+    }
+}
+
+impl Game<BoardState> for ChessEP {
+    fn predict(
+        &self,
+        node: &ArcRefNode<<BoardState as State>::Step>,
+        state: &BoardState,
+        argmax: bool,
+    ) -> (Vec<<BoardState as State>::Step>, Vec<f32>, f32) {
+        chess_tch_predict(self, node, state, argmax, false)
     }
 
     fn reverse_q(&self, node: &ArcRefNode<<BoardState as State>::Step>) -> bool {

@@ -56,8 +56,9 @@ fn main() {
         _ => todo!("Unsupported device name"),
     };
 
-    let chess = game::ChessTS {
-        model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
+    let chess = game::ChessEP {
+        //model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
+        model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
         device: device,
     };
 

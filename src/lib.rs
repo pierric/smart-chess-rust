@@ -230,7 +230,7 @@ fn play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject,
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
 
-        let (steps, prior, outcome) = game::_chess_ts_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
+        let (steps, prior, outcome) = game::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
         let steps = steps.into_pyobject(py)?.unbind().into_any();
         let prior = prior.into_pyobject(py)?.unbind().into_any();
         let outcome = outcome.into_pyobject(py)?.unbind().into_any();

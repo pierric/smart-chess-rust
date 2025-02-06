@@ -252,3 +252,33 @@ def export_bf16(n_res_blocks=19, *, checkpoint=None, output):
             model_jit = torch.jit.optimize_for_inference(model_jit)
 
     torch.jit.save(model_jit, output)
+
+
+def export_pt2_bf16(n_res_blocks=19, *, checkpoint=None, output):
+    torch.set_float32_matmul_precision("high")
+    # assuming the model was trained with AMP
+    model = load_model(
+        n_res_blocks=n_res_blocks,
+        device="cuda",
+        checkpoint=checkpoint,
+        inference=True,
+        compile=False,
+    )
+
+    x = torch.randn(2, 119, 8, 8, dtype=torch.bfloat16).cuda()
+
+    with torch.no_grad():
+        # cache_enabled is critical to "trace" to the model
+        # "script" works fine only for the non-amp model
+        with torch.autocast(
+            device_type="cuda", dtype=torch.bfloat16, cache_enabled=False
+        ):
+            # model_jit = torch.jit.trace(model, [x])
+            # model_jit = torch.jit.optimize_for_inference(model_jit)
+            # torch.jit.save(model_jit, output)
+
+            batch_dim = torch.export.Dim("batch", min=1, max=1024)
+            ep = torch.export.export(
+                model, (x,), dynamic_shapes={"inp": {0: batch_dim}}
+            )
+            torch._inductor.aoti_compile_and_package(ep, package_path=output)

@@ -12,25 +12,24 @@ def main():
     parser.add_argument(
         "-m", "--mode", choices=["bf16", "amp", "ptq", "simple"], default="simple"
     )
+    parser.add_argument("-f", "--format", choices=["onnx", "pt", "pt2"], default="pt2")
     parser.add_argument("-n", "--n-res-blocks", type=int, required=True)
     parser.add_argument("--calib", nargs="*")
     args = parser.parse_args()
 
-    func = None
-    ext = ".pt"
-    if args.mode == "simple":
-        func = nn.export
-    elif args.mode == "amp":
-        func = nn.export_fp16
-    elif args.mode == "bf16":
-        func = nn.export_bf16
-    elif args.mode == "ptq":
-        func = partial(nn.export_ptq, calib=args.calib)
-        ext = ".onnx"
+    routing = {
+        ("simple", "pt"): lambda: nn.export,
+        ("amp", "pt"): lambda: nn.export_fp16,
+        ("bf16", "pt"): lambda: nn.export_bf16,
+        ("bf16", "pt2"): lambda: nn.export_pt2_bf16,
+        ("ptq", "onnx"): lambda: partial(nn.export_ptq, calib=args.calib),
+    }
+
+    func = routing[(args.mode, args.format)]()
 
     for path in args.checkpoint:
         stamm, _ = os.path.splitext(path)
-        func(args.n_res_blocks, checkpoint=path, output=f"{stamm}{ext}")
+        func(args.n_res_blocks, checkpoint=path, output=f"{stamm}.{args.format}")
 
 
 if __name__ == "__main__":
