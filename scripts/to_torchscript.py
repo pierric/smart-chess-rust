@@ -5,6 +5,11 @@ from functools import partial
 
 import nn
 
+os.environ["TORCHINDUCTOR_FREEZING"] = "1"
+
+# segfault on GH system, debug compile helps to avoid it.
+# os.environ["AOT_INDUCTOR_DEBUG_COMPILE"] = "1"
+
 
 def main():
     parser = argparse.ArgumentParser()
