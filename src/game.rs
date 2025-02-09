@@ -251,6 +251,7 @@ fn _prepare_tensors(boards: Array3<i32>, meta: Array3<i32>, device: tch::Device)
 
     Tensor::cat(&[encoded_boards, encoded_meta], 2)
         .permute([2, 0, 1])
+        .contiguous() // aot model expects contiguous tensor
         .unsqueeze(0)
 }
 
