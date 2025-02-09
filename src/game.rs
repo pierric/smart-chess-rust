@@ -35,7 +35,6 @@ pub trait State {
     type Step;
     fn dup(&self) -> Self;
     fn advance(&mut self, step: &Self::Step);
-    fn legal_moves(&self) -> Vec<Self::Step>;
 }
 
 pub struct Chess {

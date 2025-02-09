@@ -746,19 +746,19 @@ impl game::State for BoardState {
         self.next(&step.0.unwrap());
     }
 
-    fn legal_moves(&self) -> Vec<Self::Step> {
-        Python::with_gil(|py| {
-            let locals = [("board", &self.python_object)].into_py_dict(py)?;
-            let mov: Vec<Move> = py
-                .eval(c_str!("list(board.legal_moves)"), None, Some(&locals))
-                ?.extract()?;
-            let turn: Color = self
-                .python_object
-                .getattr(py, intern!(py, "turn"))
-                ?.extract::<i32>(py)?.into();
-            Ok::<_, PyErr>(mov.into_iter().map(|m| (Some(m), !turn)).collect())
-        }).unwrap()
-    }
+    //fn legal_moves(&self) -> Vec<Self::Step> {
+    //    Python::with_gil(|py| {
+    //        let locals = [("board", &self.python_object)].into_py_dict(py)?;
+    //        let mov: Vec<Move> = py
+    //            .eval(c_str!("list(board.legal_moves)"), None, Some(&locals))
+    //            ?.extract()?;
+    //        let turn: Color = self
+    //            .python_object
+    //            .getattr(py, intern!(py, "turn"))
+    //            ?.extract::<i32>(py)?.into();
+    //        Ok::<_, PyErr>(mov.into_iter().map(|m| (Some(m), !turn)).collect())
+    //    }).unwrap()
+    //}
 }
 
 impl BoardHistory {

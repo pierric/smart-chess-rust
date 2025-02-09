@@ -118,12 +118,20 @@ where
     // }
 }
 
+fn get_noise(size: usize) -> Option<Vec<f64>> {
+    if size < 2 {
+        None
+    } else {
+        let dirichlet = Dirichlet::<f64>::new_with_size(0.3, size).unwrap();
+        Some(dirichlet.sample(&mut thread_rng()))
+    }
+}
+
 fn select<'a, G, S>(
     game: &G,
     node: &ArcRefNode<S::Step>,
     state: &mut S,
     cpuct: f32,
-    noise: &Option<Vec<f64>>,
 ) -> (VecDeque<ArcRefNode<S::Step>>, Vec<S::Step>, f32)
 where
     G: Game<S>,
@@ -159,15 +167,20 @@ where
             &children[0]
         } else {
             let is_root = path_len == 1;
-            let prior_rand: Vec<f32> = match (is_root, noise.as_ref()) {
-                (false, _) => prior.clone(),
-                (_, None) => prior.clone(),
-                (_, Some(noise)) => prior
+
+            let prior_rand: Vec<f32> = if !is_root {
+                prior.clone()
+            } else {
+                match get_noise(steps.len()) {
+                    None => prior.clone(),
+                    Some(noise) => prior
                     .iter()
                     .zip(noise.iter())
                     .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
                     .collect(),
+                }
             };
+
             let sqrt_total_num_vis =
                 f32::sqrt(i32::sum(children.iter().map(|c| c.borrow().num_act)) as f32);
             let uct_children: Vec<f32> = prior_rand
@@ -191,7 +204,6 @@ where
                 println!("len uct: {}", uct_children.len());
                 println!("len children: {}", children.len());
                 println!("len prior: {}", prior.len());
-                println!("len noise: {:?}", noise.as_ref().map(|v| v.len()));
                 println!("prior: {:?}", prior_rand);
                 println!("uct: {:?}", uct_children);
                 println!("sqrt total: {:?}", sqrt_total_num_vis);
@@ -215,17 +227,17 @@ where
     let default_cpuct: f32 = 1.2;
     let cpuct = cpuct.unwrap_or(default_cpuct);
 
-    let num_legal_moves = state.legal_moves().len();
-    let noise = if /*node.depth >= 4 || */ num_legal_moves < 2 {
-        None
-    } else {
-        let dirichlet = Dirichlet::<f64>::new_with_size(0.3, num_legal_moves).unwrap();
-        Some(dirichlet.sample(&mut thread_rng()))
-    };
+    //let num_legal_moves = state.legal_moves().len();
+    //let noise = if /*node.depth >= 4 || */ num_legal_moves < 2 {
+    //    None
+    //} else {
+    //    let dirichlet = Dirichlet::<f64>::new_with_size(0.3, num_legal_moves).unwrap();
+    //    Some(dirichlet.sample(&mut thread_rng()))
+    //};
 
     for _ in 0..n_rollout {
         let mut local_state = state.dup();
-        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct, &noise);
+        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct);
 
         // path points at a leaf node, either game is done, or it isn't finished
         let cur: &Arc<_> = path.back().unwrap();

@@ -92,7 +92,8 @@ impl Player for StockfishPlayer {
             .map(|m| chess::Move::from_uci(&m))?;
 
         let mut choice: Option<usize> = None;
-        let legal_moves = game::State::legal_moves(state);
+        let legal_moves = state.legal_moves();
+        let turn = state.turn();
         let parent = cursor.as_weak();
         let depth = cursor.current().depth;
 
@@ -101,12 +102,12 @@ impl Player for StockfishPlayer {
             mut_node.children.clear();
             for (index, mov) in legal_moves.into_iter().enumerate() {
                 let mut num_act = 0;
-                if mov.0 == Some(next) {
+                if mov == next {
                     choice = Some(index);
                     num_act = 1;
                 }
                 mut_node.children.push(Arc::new(RefCell::new(mcts::Node {
-                    step: mov,
+                    step: (Some(mov), !turn),
                     depth: depth + 1,
                     q_value: 0.,
                     num_act: num_act,
