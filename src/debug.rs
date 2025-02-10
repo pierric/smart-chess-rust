@@ -171,6 +171,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
         &state,
         args.rollout_num,
         Some(args.cpuct),
+        true,
     );
 
     let move_piror: Vec<(String, f32)> = cursor

@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 from multiprocessing import Pool
+from functools import partial
 
 import numpy as np
 import chess
@@ -239,7 +240,7 @@ def main():
     )
 
     with Pool(12) as p:
-        dss = p.map(ChessDataset, args.trace_file_for_val)
+        dss = p.map(partial(ChessDataset, drop_n=4), args.trace_file_for_val)
     val_syn_split = ConcatDataset(dss)
 
     val_syn = DataLoader(
@@ -251,7 +252,7 @@ def main():
     )
 
     val_real = DataLoader(
-        ValidationDataset(args.val_data),
+        ValidationDataset(args.val_data, drop_n_steps=4),
         num_workers=4,
         batch_size=128,
         shuffle=False,

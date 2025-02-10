@@ -5,7 +5,7 @@ white=0
 black=0
 DEST_PATH="${DEST_PATH:-*.json}"
 
-for trace in $(find $DEST_PATH | sort -V); do
+for trace in $(find $DEST_PATH -name "*.json" | sort -V); do
   if [ -f $trace ]; then
     winner=$(cat $trace | jq -c ".outcome")
     num_steps=$(cat $trace | jq -r ".steps | length")

@@ -101,7 +101,7 @@ fn main() {
     let mut outcome = None;
 
     for i in 0..args.num_steps {
-        let temperature = if i < 2 { 1.0 } else { args.temperature };
+        let temperature = if i < 30 { 1.0 } else { args.temperature };
 
         let rollout = match (args.rollout_factor, args.rollout_num) {
             (Some(v), None) => i32::max(200, (state.legal_moves().len() as f32 * v) as i32),
@@ -116,7 +116,7 @@ fn main() {
             args.cpuct,
             cursor.current().step.1
         );
-        mcts::mcts(&chess, cursor.arc(), &state, rollout, Some(args.cpuct));
+        mcts::mcts(&chess, cursor.arc(), &state, rollout, Some(args.cpuct), true);
 
         let (q_value, num_act_children) = {
             let node = cursor.current();

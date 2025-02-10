@@ -166,7 +166,7 @@ fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         mcts::mcts(
-            &state.chess, state.cursor.arc(), &state.board, rollout, Some(cpuct)
+            &state.chess, state.cursor.arc(), &state.board, rollout, Some(cpuct), true
         );
     })
 }

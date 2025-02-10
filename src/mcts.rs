@@ -132,6 +132,7 @@ fn select<'a, G, S>(
     node: &ArcRefNode<S::Step>,
     state: &mut S,
     cpuct: f32,
+    with_noise: bool,
 ) -> (VecDeque<ArcRefNode<S::Step>>, Vec<S::Step>, f32)
 where
     G: Game<S>,
@@ -168,7 +169,7 @@ where
         } else {
             let is_root = path_len == 1;
 
-            let prior_rand: Vec<f32> = if !is_root {
+            let prior_rand: Vec<f32> = if !is_root || !with_noise {
                 prior.clone()
             } else {
                 match get_noise(steps.len()) {
@@ -218,7 +219,7 @@ where
     }
 }
 
-pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>)
+pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>, with_noise: bool)
 where
     G: Game<S>,
     S: State,
@@ -237,7 +238,7 @@ where
 
     for _ in 0..n_rollout {
         let mut local_state = state.dup();
-        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct);
+        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct, with_noise);
 
         // path points at a leaf node, either game is done, or it isn't finished
         let cur: &Arc<_> = path.back().unwrap();

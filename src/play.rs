@@ -4,7 +4,6 @@ use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
 use std::boxed::Box;
 use std::cmp::Eq;
-use std::fs::create_dir;
 use std::path::Path;
 use std::sync::Arc;
 use std::cell::{RefCell, Ref};
@@ -151,6 +150,29 @@ impl NNPlayer<game::ChessTS> {
     }
 }
 
+impl NNPlayer<game::ChessEP> {
+    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
+        let device = match device {
+            "cpu" => tch::Device::Cpu,
+            "cuda" => tch::Device::Cuda(0),
+            _ => todo!("Unsupported device name"),
+        };
+
+        let chess = game::ChessEP {
+            model: aotinductor::ModelPackage::new(checkpoint.to_string_lossy().as_ref()).unwrap(),
+            device: device,
+        };
+
+        NNPlayer {
+            game: chess,
+            n_rollout: n_rollout,
+            cpuct: cpuct,
+            temperature: temperature,
+        }
+    }
+
+}
+
 /*
 impl NNPlayer<game::ChessOnnx> {
     fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
@@ -193,6 +215,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             &state,
             self.n_rollout,
             Some(self.cpuct),
+            true,
         );
 
         let num_act_vec: Vec<i32> = cursor
@@ -205,7 +228,9 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             return None;
         }
 
-        let choice: usize = if self.temperature == 0.0 {
+        let temperature = if cursor.current().depth < 30 {1.0} else {self.temperature};
+
+        let choice: usize = if temperature == 0.0 {
             let max = num_act_vec.iter().max().unwrap();
             let indices: Vec<usize> = num_act_vec
                 .iter()
@@ -216,7 +241,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             let n: usize = thread_rng().gen_range(0..indices.len());
             indices[n]
         } else {
-            let power = 1.0 / self.temperature;
+            let power = 1.0 / temperature;
             let weights =
                 WeightedIndex::new(num_act_vec.iter().map(|n| (*n as f32).powf(power))).unwrap();
             weights.sample(&mut thread_rng())
@@ -312,6 +337,13 @@ fn load_checkpoint<P: AsRef<Path>>(
             cpuct,
             temperature,
         )) as Box<SomeNNPlayer>,
+        Some("pt2") => Box::new(NNPlayer::<game::ChessEP>::load(
+            device,
+            path,
+            n_rollout,
+            cpuct,
+            temperature,
+        )) as Box<SomeNNPlayer>,
         _ => panic!("--white-checkpoint should be a path to onnx or pt file."),
     }
 }
@@ -332,8 +364,6 @@ fn main() {
         args.black_device = args.white_device.clone();
     }
     let args = args;
-
-    let _ = create_dir("replay");
 
     let mut trace = trace::Trace::new();
     let mut state = chess::BoardState::new();
@@ -391,5 +421,5 @@ fn main() {
     let outcome = state.outcome();
     println!("{:?}", outcome);
     outcome.map(|o| trace.set_outcome(o));
-    trace.save(&(String::from("replay/") + &args.output));
+    trace.save(&args.output);
 }
