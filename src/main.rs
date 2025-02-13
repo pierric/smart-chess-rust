@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::path::Path;
 
 mod chess;
 mod game;
@@ -53,15 +54,21 @@ fn main() {
     let device = match args.device.as_str() {
         "cpu" => tch::Device::Cpu,
         "cuda" => tch::Device::Cuda(0),
+        "mps" => tch::Device::Mps,
         _ => todo!("Unsupported device name"),
     };
 
-    let chess = game::ChessEP {
-        //model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
-        model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
-        device: device,
+    let chess: Box<dyn game::Game<chess::BoardState>> = match Path::new(&args.checkpoint).extension().and_then(|s| s.to_str()) {
+        Some("pt") => Box::new(game::ChessTS {
+            model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
+            device: device,
+        }),
+        Some("pt2") => Box::new(game::ChessEP {
+            model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
+            device: device,
+        }),
+        _ => panic!("unsupported checkpoint type.")
     };
-
 
 //use pyo3::prelude::*;
 //use pyo3::types::{IntoPyDict, PyString};
@@ -116,7 +123,7 @@ fn main() {
             args.cpuct,
             cursor.current().step.1
         );
-        mcts::mcts(&chess, cursor.arc(), &state, rollout, Some(args.cpuct), true);
+        mcts::mcts(chess.as_ref(), cursor.arc(), &state, rollout, Some(args.cpuct), true);
 
         let (q_value, num_act_children) = {
             let node = cursor.current();

@@ -13,7 +13,7 @@ task() {
 }
 
 export -f task
-parallel -j${P} task {#} ${ARGS} ::: $(seq 1 $N)
+parallel --line-buffer -j${P} task {#} ${ARGS} ::: $(seq 1 $N)
 
 for run_idx in `seq $N`; do
     n=$(printf %02d $run_idx)

@@ -240,14 +240,16 @@ impl Game<BoardState> for Chess {
 }
 
 fn _prepare_tensors(boards: Array3<i32>, meta: Array3<i32>, device: tch::Device) -> Tensor {
+    // copy to device in sync mode
+    // otherwise may cause corruption in data (mps)
     let encoded_boards =
         Tensor::try_from(boards)
             .unwrap()
-            .to_device_(device, tch::Kind::BFloat16, true, false);
+            .to_device_(device, tch::Kind::BFloat16, false, false);
     let encoded_meta =
         Tensor::try_from(meta)
             .unwrap()
-            .to_device_(device, tch::Kind::BFloat16, true, false);
+            .to_device_(device, tch::Kind::BFloat16, false, false);
 
     Tensor::cat(&[encoded_boards, encoded_meta], 2)
         .permute([2, 0, 1])

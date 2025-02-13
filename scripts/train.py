@@ -202,13 +202,15 @@ def main():
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=1)
     parser.add_argument("--save-start", type=int, default=10)
-    parser.add_argument("--save-end", type=int, default=100)
+    parser.add_argument("--save-end", type=int, default=0)
     parser.add_argument("--model-conf", type=str, default=None)
     parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
     parser.add_argument("--train-batch-size", type=int, default=1024)
+    parser.add_argument("--freeze-backbone", action="store_true")
+    parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
 
-    compile_model = True
+    compile_model = not args.no_compile
 
     if not args.trace_file_for_train:
         print("No trace file specified.")
@@ -237,10 +239,11 @@ def main():
         batch_size=args.train_batch_size,
         shuffle=True,
         drop_last=True,
+	persistent_workers=True,
     )
 
     with Pool(12) as p:
-        dss = p.map(partial(ChessDataset, drop_n=4), args.trace_file_for_val)
+        dss = p.map(partial(ChessDataset), args.trace_file_for_val)
     val_syn_split = ConcatDataset(dss)
 
     val_syn = DataLoader(
@@ -249,14 +252,16 @@ def main():
         batch_size=128,
         shuffle=False,
         drop_last=True,
+	persistent_workers=True,
     )
 
     val_real = DataLoader(
-        ValidationDataset(args.val_data, drop_n_steps=4),
+        ValidationDataset(args.val_data),
         num_workers=4,
         batch_size=128,
         shuffle=False,
         drop_last=True,
+	persistent_workers=True,
     )
 
     config = dict(
@@ -282,7 +287,7 @@ def main():
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
         log_every_n_steps=10,
-        # precision="16-mixed",
+        precision="bf16-mixed",
         val_check_interval=20,
     )
     trainer.fit(

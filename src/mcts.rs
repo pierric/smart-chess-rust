@@ -135,7 +135,7 @@ fn select<'a, G, S>(
     with_noise: bool,
 ) -> (VecDeque<ArcRefNode<S::Step>>, Vec<S::Step>, f32)
 where
-    G: Game<S>,
+    G: Game<S> + ?Sized,
     S: State,
     S::Step: std::fmt::Debug,
 {
@@ -221,7 +221,7 @@ where
 
 pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>, with_noise: bool)
 where
-    G: Game<S>,
+    G: Game<S> + ?Sized,
     S: State,
     S::Step: std::fmt::Debug,
 {

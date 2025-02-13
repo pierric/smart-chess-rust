@@ -22,6 +22,7 @@ path = "src/debug.rs"
 
 [build-dependencies]
 cxx-build = "1.0"
+pyo3-build-config = "0.23.4"
 
 [dependencies]
 cxx = "1.0"

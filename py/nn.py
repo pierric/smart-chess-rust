@@ -227,11 +227,11 @@ def export_fp16(n_res_blocks=19, *, checkpoint=None, output):
     torch.jit.save(model_jit, output)
 
 
-def export_bf16(n_res_blocks=19, *, checkpoint=None, output):
+def export_bf16(n_res_blocks=19, *, device="cuda", checkpoint=None, output):
     # assuming the model was trained with AMP
     model = load_model(
         n_res_blocks=n_res_blocks,
-        device="cuda",
+        device=device,
         checkpoint=checkpoint,
         inference=True,
         compile=False,
@@ -240,13 +240,13 @@ def export_bf16(n_res_blocks=19, *, checkpoint=None, output):
     # model_jit = torch.jit.script(model)
     # model_jit = torch.jit.optimize_for_inference(model_jit)
 
-    x = torch.randn(1, 119, 8, 8, dtype=torch.bfloat16).cuda()
+    x = torch.randn(1, 119, 8, 8, dtype=torch.bfloat16).to(device=device)
 
     with torch.no_grad():
         # cache_enabled is critical to "trace" to the model
         # "script" works fine only for the non-amp model
         with torch.autocast(
-            device_type="cuda", dtype=torch.bfloat16, cache_enabled=False
+            device_type=device, dtype=torch.bfloat16, cache_enabled=False
         ):
             model_jit = torch.jit.trace(model, [x])
             model_jit = torch.jit.optimize_for_inference(model_jit)
@@ -254,24 +254,24 @@ def export_bf16(n_res_blocks=19, *, checkpoint=None, output):
     torch.jit.save(model_jit, output)
 
 
-def export_pt2_bf16(n_res_blocks=19, *, checkpoint=None, output):
+def export_pt2_bf16(n_res_blocks=19, *, checkpoint=None, device="cuda", output):
     torch.set_float32_matmul_precision("high")
     # assuming the model was trained with AMP
     model = load_model(
         n_res_blocks=n_res_blocks,
-        device="cuda",
+        device=device,
         checkpoint=checkpoint,
         inference=True,
         compile=False,
     )
 
-    x = torch.randn(2, 119, 8, 8, dtype=torch.bfloat16).cuda()
+    x = torch.randn(2, 119, 8, 8, dtype=torch.bfloat16).to(device=device)
 
     with torch.no_grad():
         # cache_enabled is critical to "trace" to the model
         # "script" works fine only for the non-amp model
         with torch.autocast(
-            device_type="cuda", dtype=torch.bfloat16, cache_enabled=False
+            device_type=device, dtype=torch.bfloat16, cache_enabled=False
         ):
             # model_jit = torch.jit.trace(model, [x])
             # model_jit = torch.jit.optimize_for_inference(model_jit)
