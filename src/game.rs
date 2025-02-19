@@ -61,7 +61,7 @@ pub struct ChessOnnx {
 fn call_py_model(
     model: &Py<PyAny>,
     device: &str,
-    boards: Array3<i32>,
+    boards: Array3<i8>,
     meta: Array3<i32>,
     turn: Color,
     steps: &Vec<Move>,
@@ -129,7 +129,7 @@ ret_score = ret_score.detach().cpu().item()
     }).unwrap()
 }
 
-fn _encode(node: &ArcRefNode<(Option<Move>, Color)>, state: &BoardState) -> (Array3<i32>, Array3<i32>) {
+fn _encode(node: &ArcRefNode<(Option<Move>, Color)>, state: &BoardState) -> (Array3<i8>, Array3<i32>) {
     let current_board = state.to_board();
     let mut history = BoardHistory::new(LOOKBACK);
     let mut move_stack = state.move_stack();
@@ -239,7 +239,7 @@ impl Game<BoardState> for Chess {
     }
 }
 
-fn _prepare_tensors(boards: Array3<i32>, meta: Array3<i32>, device: tch::Device) -> Tensor {
+fn _prepare_tensors(boards: Array3<i8>, meta: Array3<i32>, device: tch::Device) -> Tensor {
     // copy to device in sync mode
     // otherwise may cause corruption in data (mps)
     let encoded_boards =

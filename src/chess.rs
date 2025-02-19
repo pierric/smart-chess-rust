@@ -1,5 +1,4 @@
 use crate::{game, knightmoves, queenmoves, underpromotions};
-use cached::proc_macro::cached;
 use cached::{SizedCache, Cached};
 use ndarray::{s, Array3, Ix3};
 use once_cell::sync::Lazy;
@@ -498,50 +497,6 @@ impl Move {
     }
 }
 
-#[cached(
-    type = "SizedCache<u64, Array3<i32>>",
-    create = "{ SizedCache::with_size(5000) }",
-    convert = r#"{
-        let mut hasher = DefaultHasher::new();
-        board.piece_map.hash(&mut hasher);
-        board.repetition2.hash(&mut hasher);
-        board.repetition3.hash(&mut hasher);
-        hasher.finish()
-    }"#
-)]
-fn _encode_pieces(board: &Board) -> Array3<i32> {
-    let mut array = Array3::<i32>::zeros((8, 8, 14));
-
-    for (square, piece) in board.piece_map.iter() {
-        let piece_type = piece.piece_type;
-        let color = piece.color;
-
-        // The first six planes encode the pieces of the active player,
-        // the following six those of the active player's opponent. Since
-        // this class always stores boards oriented towards the white player,
-        // White is considered to be the active player here.
-        let offset = if color == Color::White { 0 } else { 6 };
-
-        // Chess enumerates piece types beginning with one, which we have
-        // to account for
-        let idx = piece_type as i32 - 1;
-
-        let rank = square.rank.try_into().unwrap();
-        let file = square.file.try_into().unwrap();
-
-        array[Ix3(rank, file, (idx + offset).try_into().unwrap())] = 1;
-    }
-    // Repetition counters
-    array
-        .slice_mut(s![.., .., 12])
-        .fill(board.repetition2 as i32);
-    array
-        .slice_mut(s![.., .., 13])
-        .fill(board.repetition3 as i32);
-
-    return array;
-}
-
 static mut GET_BOARD_CACHE: Lazy<SizedCache<u64, Board>> =
     Lazy::new(|| SizedCache::with_size(50000));
 
@@ -615,8 +570,37 @@ impl Board {
         };
     }
 
-    pub fn encode_pieces(&self) -> Array3<i32> {
-        _encode_pieces(self)
+    pub fn encode_pieces(&self) -> Array3<i8> {
+        let mut array = Array3::<i8>::zeros((8, 8, 14));
+
+        for (square, piece) in self.piece_map.iter() {
+            let piece_type = piece.piece_type;
+            let color = piece.color;
+
+            // The first six planes encode the pieces of the active player,
+            // the following six those of the active player's opponent. Since
+            // this class always stores boards oriented towards the white player,
+            // White is considered to be the active player here.
+            let offset = if color == Color::White { 0 } else { 6 };
+
+            // Chess enumerates piece types beginning with one, which we have
+            // to account for
+            let idx = piece_type as i32 - 1;
+
+            let rank = square.rank.try_into().unwrap();
+            let file = square.file.try_into().unwrap();
+
+            array[Ix3(rank, file, (idx + offset).try_into().unwrap())] = 1;
+        }
+        // Repetition counters
+        array
+            .slice_mut(s![.., .., 12])
+            .fill(self.repetition2 as i8);
+        array
+            .slice_mut(s![.., .., 13])
+            .fill(self.repetition3 as i8);
+
+        return array;
     }
 
     pub fn encode_meta(&self) -> Array3<i32> {
@@ -784,8 +768,8 @@ impl BoardHistory {
         }
     }
 
-    pub fn view(&self, rotate: bool) -> Array3<i32> {
-        let mut full = Array3::<i32>::zeros((8, 8, 14 * self.size));
+    pub fn view(&self, rotate: bool) -> Array3<i8> {
+        let mut full = Array3::<i8>::zeros((8, 8, 14 * self.size));
 
         for idx in 0..self.history.len() {
             let board = self.history.get(idx).unwrap();

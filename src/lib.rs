@@ -84,7 +84,7 @@ fn encode_steps(
                 encoded_dist[Ix1(ind as usize)] = val;
             }
 
-            let encoded_boards: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &encoded_boards);
+            let encoded_boards: Bound<'_, PyArray3<i8>> = PyArray3::from_array(py, &encoded_boards);
             let encoded_meta: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &encoded_meta);
             let encoded_dist: Bound<'_, PyArray1<f32>> = PyArray1::from_array(py, &encoded_dist);
 
@@ -111,7 +111,7 @@ fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, 
         } else {
             board.rotate()
         };
-        let encoded_boards: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &board.encode_pieces());
+        let encoded_boards: Bound<'_, PyArray3<i8>> = PyArray3::from_array(py, &board.encode_pieces());
         let encoded_meta: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &board.encode_meta());
         Ok((encoded_boards.unbind().into_any(), encoded_meta.unbind().into_any()))
     })

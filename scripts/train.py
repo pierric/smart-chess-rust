@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 from multiprocessing import Pool
 from functools import partial
+from tqdm import tqdm
 
 import numpy as np
 import chess
@@ -31,12 +32,12 @@ class ChessLightningModule(L.LightningModule):
                 n_res_blocks=model_conf.teacher,
                 checkpoint=config["last_ckpt"],
                 inference=True,
-                compile=config["compile_model"],
+                compile=False,
             )
             self.model = load_model(
                 n_res_blocks=model_conf.student,
                 inference=False,
-                compile=config["compile_model"],
+                compile=False,
             )
 
         else:
@@ -45,8 +46,23 @@ class ChessLightningModule(L.LightningModule):
                 n_res_blocks=model_conf,
                 checkpoint=config["last_ckpt"],
                 inference=False,
-                compile=config["compile_model"],
+                compile=False,
             )
+            self.teacher = None
+
+        if config["freeze_backbone"]:
+            trainable_weights = []
+            prefixes = ["model.conv_block.", "model.res_blocks."]
+            for name, param in self.named_parameters():
+                if not any(name.startswith(p) for p in prefixes):
+                    trainable_weights.append(name)
+                    continue
+                param.requires_grad = False
+            print("Trainnable weights: ", trainable_weights)
+
+        if config["compile_model"]:
+            self.model.compile(mode="reduce-overhead", fullgraph=True)
+            # skip compiling the teacher, as we don't use do transfer-learning yet.
 
     def compute_loss1(self, log_dist_pred, dist_gt):
         batch_size = dist_gt.shape[0]
@@ -123,7 +139,9 @@ class ChessLightningModule(L.LightningModule):
         optimizer = torch.optim.SGD(
             self.parameters(), lr=self.config["lr"], momentum=0.9, weight_decay=3e-5
         )
-        return optimizer
+
+        if self.config["lr_scheduler"] == "constant":
+            return optimizer
 
         from torch.optim.lr_scheduler import OneCycleLR
 
@@ -150,13 +168,17 @@ class ModelCheckpointAtEpochEnd(Callback):
         self.end = end
         self.interval = interval
         self.model_compiled = model_compiled
+        self.counting = 0
 
     def on_validation_end(self, trainer, pl_module):
         step = trainer.global_step
         callback_metrics = trainer.callback_metrics
+        self.counting += 1
 
-        if step < self.start or step >= self.end or (step + 1) % self.interval != 0:
+        if step < self.start or step >= self.end or self.counting < self.interval:
             return
+
+        self.counting = 0
 
         val_loss1 = callback_metrics["val_syn_loss1/dataloader_idx_0"].item()
         val_loss2 = callback_metrics["val_syn_loss2/dataloader_idx_0"].item()
@@ -168,8 +190,9 @@ class ModelCheckpointAtEpochEnd(Callback):
         print("saving checkpoint: ", path)
 
         m = pl_module.model
-        if self.model_compiled:
-            m = m._orig_mod
+        ## necessary only if calling torch.compile instead of model.compile
+        # if self.model_compiled:
+        #    m = m._orig_mod
 
         torch.save(m.state_dict(), path)
 
@@ -206,6 +229,9 @@ def main():
     parser.add_argument("--model-conf", type=str, default=None)
     parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
     parser.add_argument("--train-batch-size", type=int, default=1024)
+    parser.add_argument(
+        "--lr-scheduler", type=str, choices=["constant", "onecycle"], default="constant"
+    )
     parser.add_argument("--freeze-backbone", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
     args = parser.parse_args()
@@ -228,7 +254,12 @@ def main():
     ]
 
     with Pool(12) as p:
-        dss = p.map(ChessDataset, args.trace_file_for_train)
+        dss = list(
+            tqdm(
+                p.imap(partial(ChessDataset), args.trace_file_for_train),
+                total=len(args.trace_file_for_train),
+            )
+        )
     train_split = ConcatDataset(dss)
 
     # train_split, val_syn_split = random_split(dss, [0.8, 0.2])
@@ -239,11 +270,16 @@ def main():
         batch_size=args.train_batch_size,
         shuffle=True,
         drop_last=True,
-	persistent_workers=True,
+        persistent_workers=True,
     )
 
     with Pool(12) as p:
-        dss = p.map(partial(ChessDataset), args.trace_file_for_val)
+        dss = list(
+            tqdm(
+                p.imap(partial(ChessDataset), args.trace_file_for_val),
+                total=len(args.trace_file_for_val),
+            )
+        )
     val_syn_split = ConcatDataset(dss)
 
     val_syn = DataLoader(
@@ -252,7 +288,7 @@ def main():
         batch_size=128,
         shuffle=False,
         drop_last=True,
-	persistent_workers=True,
+        persistent_workers=True,
     )
 
     val_real = DataLoader(
@@ -261,7 +297,7 @@ def main():
         batch_size=128,
         shuffle=False,
         drop_last=True,
-	persistent_workers=True,
+        persistent_workers=True,
     )
 
     config = dict(
@@ -278,6 +314,8 @@ def main():
         loss_weight=args.loss_weight,
         compile_model=compile_model,
         model_conf=TransferConf.parse(args.model_conf) or int(args.model_conf),
+        freeze_backbone=args.freeze_backbone,
+        lr_scheduler=args.lr_scheduler,
     )
 
     module = ChessLightningModule(config)
@@ -287,7 +325,7 @@ def main():
         callbacks=lightning_checkpoints,
         max_epochs=config["epochs"],
         log_every_n_steps=10,
-        precision="bf16-mixed",
+        # precision="bf16-mixed",
         val_check_interval=20,
     )
     trainer.fit(
@@ -296,7 +334,8 @@ def main():
         val_dataloaders=[val_syn, val_real],
     )
 
-    m = module.model._orig_mod if compile_model else module.model
+    # m = module.model._orig_mod if compile_model else module.model
+    m = module.model
     torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
 
 

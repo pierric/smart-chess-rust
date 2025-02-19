@@ -45,23 +45,22 @@ class ChessModuleBase(torch.nn.Module):
         )
 
         self.value_head = torch.nn.Sequential(
-            # torch.nn.Conv2d(256, 1, kernel_size=1, bias=False),
-            # torch.nn.BatchNorm2d(1),
-            # torch.nn.Flatten(),
-            # torch.nn.Linear(64, 64),
-            # torch.nn.ReLU(inplace=False),
-            # torch.nn.Linear(64, 1),
-            # torch.nn.Tanh(),
-            torch.nn.Conv2d(256, 64, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(64),
-            # torch.nn.Dropout2d(p=0.5),
-            torch.nn.AvgPool2d(kernel_size=8),
+            torch.nn.Conv2d(256, 16, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(16),
             torch.nn.Flatten(),
-            # torch.nn.Dropout(p=0.5),
-            torch.nn.Linear(64, 1),
-            # torch.nn.ReLU(inplace=True),
-            # torch.nn.Linear(128, 1),
+            torch.nn.Linear(1024, 256),
+            torch.nn.ReLU(inplace=False),
+            torch.nn.Linear(256, 1),
             torch.nn.Tanh(),
+            # torch.nn.Conv2d(256, 64, kernel_size=1, bias=False),
+            # torch.nn.BatchNorm2d(64),
+            # # # torch.nn.AvgPool2d(kernel_size=8),
+            # torch.nn.Dropout2d(p=0.5),
+            # torch.nn.Flatten(),
+            # torch.nn.Linear(64 * 8 * 8, 512),
+            # torch.nn.ReLU(inplace=False),
+            # torch.nn.Linear(512, 1),
+            # torch.nn.Tanh(),
         )
 
         self.policy_head = torch.nn.Sequential(

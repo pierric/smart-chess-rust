@@ -29,7 +29,7 @@ def _get_outcome(res):
 
 
 def _prepare(boards, meta, dist, outcome):
-    inp = np.concatenate((boards, meta), axis=-1).astype(np.float32)
+    inp = np.concatenate((boards.astype(np.float32), meta.astype(np.float32)), axis=-1)
     inp = inp.transpose((2, 0, 1))
 
     # turn = meta[0, 0, 0]

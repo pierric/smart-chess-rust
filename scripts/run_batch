@@ -1,5 +1,5 @@
 set -eux
-source .env
+# source .env
 
 ARGS=$@
 N=${N:-100}
