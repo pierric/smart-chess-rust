@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::cell::{RefCell, RefMut};
 
 pub mod chess;
+pub mod hexapawn;
 pub mod game;
 pub mod knightmoves;
 pub mod mcts;
@@ -13,7 +14,7 @@ pub mod queenmoves;
 pub mod underpromotions;
 
 #[pyfunction]
-fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
+fn chess_encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
     Ok(if turn == chess::Color::Black {
         mov.rotate().encode()
     } else {
@@ -22,7 +23,7 @@ fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
 }
 
 #[pyfunction]
-fn encode_steps(
+fn chess_encode_steps(
     steps: Vec<(chess::Move, Vec<(chess::Move, u32)>)>, apply_mirror: bool
 ) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
     let mut history = chess::BoardHistory::new(chess::LOOKBACK);
@@ -104,7 +105,7 @@ fn encode_steps(
 }
 
 #[pyfunction]
-fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, PyObject)> {
+fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, PyObject)> {
     Python::with_gil(|py| {
         let board = if view == chess::Color::White {
             board
@@ -132,7 +133,7 @@ struct ChessEngineState {
 unsafe impl Send for ChessEngineState {}
 
 #[pyfunction]
-fn play_new(checkpoint: &str) -> PyResult<PyObject> {
+fn chess_play_new(checkpoint: &str) -> PyResult<PyObject> {
     let device = tch::Device::Cuda(0);
     let chess = chess::ChessTS {
         model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
@@ -162,7 +163,7 @@ fn play_new(checkpoint: &str) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
+fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         mcts::mcts(
@@ -172,7 +173,7 @@ fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
 }
 
 #[pyfunction]
-fn play_step(state: Py<PyCapsule>, temp: f32) {
+fn chess_play_step(state: Py<PyCapsule>, temp: f32) {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow_mut() };
         let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
@@ -181,7 +182,7 @@ fn play_step(state: Py<PyCapsule>, temp: f32) {
 }
 
 #[pyfunction]
-fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)>{
+fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)>{
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         let board = Py::clone_ref(&state.board.python_object, py);
@@ -215,7 +216,7 @@ fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject,
 }
 
 #[pyfunction]
-fn play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
+fn chess_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         let json = serde_json::to_string(&*state.root.borrow()).unwrap();
@@ -226,7 +227,7 @@ fn play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-fn play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject, PyObject, PyObject)> {
+fn chess_play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject, PyObject, PyObject)> {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
 
@@ -238,19 +239,106 @@ fn play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject,
     })
 }
 
+#[pyfunction]
+fn hexapawn_encode_steps(
+    steps: Vec<(hexapawn::Move, Vec<(hexapawn::Move, u32)>)>, apply_mirror: bool
+) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
+
+    let mut history = hexapawn::BoardHistory::new(hexapawn::LOOKBACK);
+    let mut board_state = hexapawn::Board::new();
+
+    let mut ret = Vec::new();
+
+    let flip_color = hexapawn::Color::Black;
+
+    Python::with_gil(|py| {
+        for (next_mov, num_act) in steps.iter() {
+            let num_act_dict: HashMap<hexapawn::Move, u32> = num_act.iter().cloned().collect();
+
+            let board = if apply_mirror {
+                board_state.rotate()
+            } else {
+                board_state.clone()
+            };
+
+            // rotate the move if black
+            let rotate_and_encode = |m: &hexapawn::Move, turn: hexapawn::Color| -> i32 {
+                if turn == flip_color {
+                    m.rotate().encode()
+                } else {
+                    m.encode()
+                }
+            };
+
+            let legal_moves = board.legal_moves();
+            // latter boards stay at the front
+            history.push_front(board.clone());
+
+            let encoded_boards = history.view(board.turn == flip_color);
+            let encoded_meta = board.encode_meta();
+            let turn = board.turn;
+            let moves_indices: Vec<i32> = legal_moves.iter().map(|m| rotate_and_encode(m, turn)).collect();
+
+            // sanity check of the input matching the legal moves
+            let set_moves_in: HashSet<hexapawn::Move> = num_act_dict.keys().cloned().collect();
+            let set_moves_exp: HashSet<hexapawn::Move> = legal_moves.into_iter().collect();
+
+            let diff: Vec<_> = set_moves_in.symmetric_difference(&set_moves_exp).collect();
+            if diff.len() > 0 {
+                for x in diff {
+                    println!("{x}");
+                }
+                panic!("inconsistent moves");
+            }
+
+            if !set_moves_exp.contains(next_mov) {
+                panic!("num_act table doesn't include the next move");
+            }
+
+            let sum_num_act: u32 = num_act_dict.values().sum();
+            let mut encoded_dist = Array1::<f32>::zeros((3 * 3 * 6,));
+
+            for (mov, cnt) in &num_act_dict {
+                let ind = rotate_and_encode(mov, turn);
+                let val = *cnt as f32 / (sum_num_act as f32 + 1e-5);
+                encoded_dist[Ix1(ind as usize)] = val;
+            }
+
+            let encoded_boards: Bound<'_, PyArray3<i8>> = PyArray3::from_array(py, &encoded_boards);
+            let encoded_meta: Bound<'_, PyArray3<i32>> = PyArray3::from_array(py, &encoded_meta);
+            let encoded_dist: Bound<'_, PyArray1<f32>> = PyArray1::from_array(py, &encoded_dist);
+
+            let move_indices = moves_indices.into_pyobject(py).unwrap();
+
+            ret.push((
+                encoded_boards.unbind().into_any(),
+                encoded_meta.unbind().into_any(),
+                encoded_dist.unbind().into_any(),
+                move_indices.unbind(),
+            ));
+            board_state.step(next_mov);
+        }
+    });
+
+    Ok(ret)
+}
+
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
 #[pymodule]
 fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(encode_board, m)?)?;
-    m.add_function(wrap_pyfunction!(encode_move, m)?)?;
-    m.add_function(wrap_pyfunction!(encode_steps, m)?)?;
-    m.add_function(wrap_pyfunction!(play_new, m)?)?;
-    m.add_function(wrap_pyfunction!(play_mcts, m)?)?;
-    m.add_function(wrap_pyfunction!(play_step, m)?)?;
-    m.add_function(wrap_pyfunction!(play_inspect, m)?)?;
-    m.add_function(wrap_pyfunction!(play_dump_search_tree, m)?)?;
-    m.add_function(wrap_pyfunction!(play_inference, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_encode_board, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_encode_move, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_encode_steps, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_new, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_mcts, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_step, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_inspect, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_dump_search_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_inference, m)?)?;
+
+    m.add_function(wrap_pyfunction!(hexapawn_encode_steps, m)?)?;
+
     Ok(())
 }

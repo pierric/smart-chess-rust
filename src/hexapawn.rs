@@ -4,8 +4,10 @@ use std::fmt;
 use std::ops::Not;
 use ndarray::{s, Array3, Ix3};
 use serde::{Deserialize, Serialize, Serializer};
+use serde::ser::SerializeMap;
 use tch::Tensor;
 use short_uuid::ShortUuid;
+use pyo3::prelude::*;
 
 use crate::{mcts, game};
 use mcts::Cursor;
@@ -48,7 +50,7 @@ pub struct BoardHistory {
     pub history: VecDeque<Board>,
 }
 
-#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum Outcome {
     Checkmate(Color),
     Stalemate,
@@ -109,6 +111,20 @@ impl fmt::Display for Board {
     }
 }
 
+impl Serialize for Outcome {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut res = serializer.serialize_map(Some(1))?;
+        match self {
+            Outcome::Checkmate(color) => { res.serialize_entry("winner", color)?; }
+            _ => { res.serialize_entry("winner", &None::<Color>)?; }
+        }
+        res.end()
+    }
+}
+
 const SQUARE_NAMES: [[&str; 3]; 3] = [
     ["a1", "b1", "c1"],
     ["a2", "b2", "c2"],
@@ -118,6 +134,14 @@ const SQUARE_NAMES: [[&str; 3]; 3] = [
 impl Square {
     pub fn symbol(&self) -> &str {
         SQUARE_NAMES[self.rank as usize][self.file as usize]
+    }
+
+    pub fn from_symbol(symbol: &str) -> Self {
+        let repr = symbol.as_bytes();
+        assert_eq!(repr.len(), 2);
+        let file = (repr[0] - b'a') as i32;
+        let rank = (repr[1] - b'0') as i32;
+        Self{rank, file}
     }
 
     pub fn rotate(&self) -> Self {
@@ -165,6 +189,24 @@ impl Serialize for Move {
         S: Serializer,
     {
         serializer.serialize_str(&self.uci())
+    }
+}
+
+impl<'a> FromPyObject<'a> for Move {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+        if obj.is_instance_of::<pyo3::types::PyString>() {
+            let repr: String = FromPyObject::<'a>::extract_bound(obj)?;
+            let from = Square::from_symbol(&repr[0..2]);
+            let to = Square::from_symbol(&repr[2..]);
+            Ok(Move {from, to})
+        }
+        else {
+            use crate::chess;
+            let cmov: chess::Move = FromPyObject::<'a>::extract_bound(obj)?;
+            let from = Square{rank: cmov.from.rank, file: cmov.from.file};
+            let to = Square{rank: cmov.to.rank, file: cmov.to.file};
+            Ok(Move {from, to})
+        }
     }
 }
 
@@ -376,11 +418,11 @@ impl BoardHistory {
     }
 
     #[allow(dead_code)]
-    pub fn push_front(&mut self, board: &Board) {
+    pub fn push_front(&mut self, board: Board) {
         if self.history.len() == self.size {
             self.history.pop_back();
         }
-        self.history.push_front(board.clone());
+        self.history.push_front(board);
     }
 
     #[allow(dead_code)]

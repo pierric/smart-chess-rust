@@ -38,6 +38,9 @@ struct Args {
 
     #[arg(long, default_value_t = 1.0)]
     cpuct: f32,
+
+    #[arg(long, default_value_t = 30)]
+    temperature_switch: i32,
 }
 
 fn main() {
@@ -88,7 +91,7 @@ fn main() {
     let mut outcome = None;
 
     for i in 0..args.num_steps {
-        let temperature = if i < 30 { 1.0 } else { args.temperature };
+        let temperature = if i < args.temperature_switch { 1.0 } else { args.temperature };
 
         let rollout = match (args.rollout_factor, args.rollout_num) {
             (Some(v), None) => i32::max(200, (state.legal_moves().len() as f32 * v) as i32),

@@ -18,42 +18,44 @@ def main():
     parser.add_argument("-f", "--format", choices=["onnx", "pt", "pt2"], default="pt2")
     parser.add_argument("-n", "--n-res-blocks", type=int, required=False)
     parser.add_argument("-g", "--game", choices=["chess", "hexapawn"], default="chess")
+    parser.add_argument("-d", "--device", choices=["cuda", "mps"], default="cuda")
     parser.add_argument("--calib", nargs="*")
     args = parser.parse_args()
 
     if args.game == "chess":
         assert args.n_res_blocks is not None
-        from modules.chess import load_model
+        from game_chess.module import load_model
         model = load_model(
             n_res_blocks=args.n_res_blocks,
             checkpoint=args.checkpoint,
-            device="cuda",
+            device=args.device,
             inference=True,
             compile=False,
         )
         inp_shape = (119, 8, 8)
 
     elif args.game == "hexapawn":
-        from modules.hexapawn import load_model
+        from game_hexapawn.module import load_model
         model = load_model(
             checkpoint=args.checkpoint,
-            device="cuda",
+            device=args.device,
             inference=True,
             compile=False,
         )
         inp_shape = (11, 3, 3)
 
+    import export
     routing = {
-        ("simple", "pt"): lambda: nn.export,
-        ("amp", "pt"): lambda: nn.export_fp16,
-        ("bf16", "pt"): lambda: nn.export_bf16,
-        ("bf16", "pt2"): lambda: nn.export_pt2_bf16,
-        ("ptq", "onnx"): lambda: partial(nn.export_ptq, calib=args.calib),
+        ("simple", "pt"): lambda: export.export,
+        ("amp", "pt"): lambda: export.export_fp16,
+        ("bf16", "pt"): lambda: export.export_pt_bf16,
+        ("bf16", "pt2"): lambda: export.export_pt2_bf16,
+        ("ptq", "onnx"): lambda: partial(export.export_ptq, calib=args.calib),
     }
 
     stamm, _ = os.path.splitext(args.checkpoint)
     func = routing[(args.mode, args.format)]()
-    func(device="cuda", output=f"{stamm}.{args.format}")
+    func(model,inp_shape=inp_shape, device=args.device, output=f"{stamm}.{args.format}")
 
 
 if __name__ == "__main__":

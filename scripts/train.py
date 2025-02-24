@@ -17,7 +17,10 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, Callback
 
 from dataset import ChessDataset, ValidationDataset
-from nn import load_model
+
+
+GAME = "hexapawn"
+from game_hexapawn.module import load_model
 
 
 class ChessLightningModule(L.LightningModule):
@@ -26,39 +29,46 @@ class ChessLightningModule(L.LightningModule):
         self.save_hyperparameters()
         self.config = config
 
-        model_conf = config["model_conf"]
-        if isinstance(model_conf, TransferConf):
-            self.teacher = load_model(
-                n_res_blocks=model_conf.teacher,
-                checkpoint=config["last_ckpt"],
-                inference=True,
-                compile=False,
-            )
+        if GAME == "hexapawn":
             self.model = load_model(
-                n_res_blocks=model_conf.student,
+                checkpoint=config["last_ckpt"],
                 inference=False,
                 compile=False,
             )
-
         else:
-            assert isinstance(model_conf, int)
-            self.model = load_model(
-                n_res_blocks=model_conf,
-                checkpoint=config["last_ckpt"],
-                inference=False,
-                compile=False,
-            )
-            self.teacher = None
+            model_conf = config["model_conf"]
+            if isinstance(model_conf, TransferConf):
+                self.teacher = load_model(
+                    n_res_blocks=model_conf.teacher,
+                    checkpoint=config["last_ckpt"],
+                    inference=True,
+                    compile=False,
+                )
+                self.model = load_model(
+                    n_res_blocks=model_conf.student,
+                    inference=False,
+                    compile=False,
+                )
 
-        if config["freeze_backbone"]:
-            trainable_weights = []
-            prefixes = ["model.conv_block.", "model.res_blocks."]
-            for name, param in self.named_parameters():
-                if not any(name.startswith(p) for p in prefixes):
-                    trainable_weights.append(name)
-                    continue
-                param.requires_grad = False
-            print("Trainnable weights: ", trainable_weights)
+            else:
+                assert isinstance(model_conf, int)
+                self.model = load_model(
+                    n_res_blocks=model_conf,
+                    checkpoint=config["last_ckpt"],
+                    inference=False,
+                    compile=False,
+                )
+                self.teacher = None
+
+            if config["freeze_backbone"]:
+                trainable_weights = []
+                prefixes = ["model.conv_block.", "model.res_blocks."]
+                for name, param in self.named_parameters():
+                    if not any(name.startswith(p) for p in prefixes):
+                        trainable_weights.append(name)
+                        continue
+                    param.requires_grad = False
+                print("Trainnable weights: ", trainable_weights)
 
         if config["compile_model"]:
             self.model.compile(mode="reduce-overhead", fullgraph=True)
@@ -81,7 +91,7 @@ class ChessLightningModule(L.LightningModule):
             loss2 = self.compute_loss2(value_pred, outcome)
 
         else:
-            batch_size_supervised = self.config["batch_size"] // 2
+            batch_size_supervised = self.config["train_batch_size"] // 2
 
             boards_supervised = boards[:batch_size_supervised]
             dist_supervised = dist[:batch_size_supervised]
@@ -229,6 +239,7 @@ def main():
     parser.add_argument("--model-conf", type=str, default=None)
     parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
     parser.add_argument("--train-batch-size", type=int, default=1024)
+    parser.add_argument("--val-batch-size", type=int, default=128)
     parser.add_argument(
         "--lr-scheduler", type=str, choices=["constant", "onecycle"], default="constant"
     )
@@ -256,7 +267,7 @@ def main():
     with Pool(12) as p:
         dss = list(
             tqdm(
-                p.imap(partial(ChessDataset), args.trace_file_for_train),
+                p.imap(partial(ChessDataset, game=GAME), args.trace_file_for_train),
                 total=len(args.trace_file_for_train),
             )
         )
@@ -276,7 +287,7 @@ def main():
     with Pool(12) as p:
         dss = list(
             tqdm(
-                p.imap(partial(ChessDataset), args.trace_file_for_val),
+                p.imap(partial(ChessDataset, game=GAME), args.trace_file_for_val),
                 total=len(args.trace_file_for_val),
             )
         )
@@ -285,23 +296,28 @@ def main():
     val_syn = DataLoader(
         val_syn_split,
         num_workers=4,
-        batch_size=128,
+        batch_size=args.val_batch_size,
         shuffle=False,
         drop_last=True,
         persistent_workers=True,
     )
 
-    val_real = DataLoader(
-        ValidationDataset(args.val_data),
-        num_workers=4,
-        batch_size=128,
-        shuffle=False,
-        drop_last=True,
-        persistent_workers=True,
-    )
+    val_loaders = [val_syn]
+
+    if GAME == "chess" and args.val_data:
+        val_real = DataLoader(
+            ValidationDataset(args.val_data),
+            num_workers=4,
+            batch_size=args.val_batch_size,
+            shuffle=False,
+            drop_last=True,
+            persistent_workers=True,
+        )
+        val_loaders.append(val_real)
 
     config = dict(
-        batch_size=args.train_batch_size,
+        train_batch_size=args.train_batch_size,
+        val_batch_size=args.val_batch_size,
         epochs=args.epochs,
         steps_per_epoch=len(train_loader),
         lr=args.lr,
@@ -313,7 +329,7 @@ def main():
         save_every_k=args.save_every_k,
         loss_weight=args.loss_weight,
         compile_model=compile_model,
-        model_conf=TransferConf.parse(args.model_conf) or int(args.model_conf),
+        model_conf=None if args.model_conf is None else TransferConf.parse(args.model_conf) or int(args.model_conf),
         freeze_backbone=args.freeze_backbone,
         lr_scheduler=args.lr_scheduler,
     )
@@ -326,12 +342,12 @@ def main():
         max_epochs=config["epochs"],
         log_every_n_steps=10,
         # precision="bf16-mixed",
-        val_check_interval=20,
+        #val_check_interval=20,
     )
     trainer.fit(
         model=module,
         train_dataloaders=train_loader,
-        val_dataloaders=[val_syn, val_real],
+        val_dataloaders=val_loaders,
     )
 
     # m = module.model._orig_mod if compile_model else module.model

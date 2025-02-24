@@ -15,6 +15,10 @@ def main():
     psplit.add_argument("-r", "--ratio", default=0.1, type=float)
     psplit.add_argument("-v", "--val", required=True)
     psplit.add_argument("-t", "--train", required=True)
+    psplit.add_argument(
+        "--sample-draw", choices=["sample", "keep-all"], default="sample"
+    )
+
     args = parser.parse_args()
 
     if args.command == "mix":
@@ -78,12 +82,19 @@ def split(args):
     groups = df.groupby(by="result")
     nmax = groups.count().loc[["White", "Black"]].max().item()
 
-    d = groups.get_group("draw").sample(n=nmax)
     w = groups.get_group("White")
     b = groups.get_group("Black")
 
     w = w.sample(frac=1).reset_index(drop=True)
     b = b.sample(frac=1).reset_index(drop=True)
+
+    if args.sample_draw == "sample":
+        d = groups.get_group("draw").sample(n=nmax)
+    elif args.sample_draw == "keep-all":
+        d = groups.get_group("draw")
+        d = d.sample(frac=1).reset_index(drop=True)
+    else:
+        assert "bad value for --sample-draw"
 
     def _split(d):
         nval = int(len(d) * args.ratio)
