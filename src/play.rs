@@ -18,6 +18,8 @@ mod queenmoves;
 mod trace;
 mod underpromotions;
 
+use chess::{ChessTS, ChessEP};
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
 enum Opponent {
     Stockfish,
@@ -61,7 +63,7 @@ struct Args {
     output: String,
 }
 
-type MctsCursor = mcts::Cursor<(Option<chess::Move>, chess::Color)>;
+type MctsCursor = mcts::Cursor<chess::Step>;
 
 trait Player {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize>;
@@ -106,7 +108,7 @@ impl Player for StockfishPlayer {
                     num_act = 1;
                 }
                 mut_node.children.push(Arc::new(RefCell::new(mcts::Node {
-                    step: (Some(mov), !turn),
+                    step: chess::Step(Some(mov), !turn),
                     depth: depth + 1,
                     q_value: 0.,
                     num_act: num_act,
@@ -128,7 +130,7 @@ struct NNPlayer<G: game::Game<chess::BoardState>> {
     game: G,
 }
 
-impl NNPlayer<game::ChessTS> {
+impl NNPlayer<ChessTS> {
     fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
@@ -136,7 +138,7 @@ impl NNPlayer<game::ChessTS> {
             _ => todo!("Unsupported device name"),
         };
 
-        let chess = game::ChessTS {
+        let chess = ChessTS {
             model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
             device: device,
         };
@@ -150,7 +152,7 @@ impl NNPlayer<game::ChessTS> {
     }
 }
 
-impl NNPlayer<game::ChessEP> {
+impl NNPlayer<ChessEP> {
     fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
@@ -158,7 +160,7 @@ impl NNPlayer<game::ChessEP> {
             _ => todo!("Unsupported device name"),
         };
 
-        let chess = game::ChessEP {
+        let chess = ChessEP {
             model: aotinductor::ModelPackage::new(checkpoint.to_string_lossy().as_ref()).unwrap(),
             device: device,
         };
@@ -172,40 +174,6 @@ impl NNPlayer<game::ChessEP> {
     }
 
 }
-
-/*
-impl NNPlayer<game::ChessOnnx> {
-    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
-        let device: &[ort::ExecutionProviderDispatch] = &match device {
-            "cpu" => [ort::CPUExecutionProvider::default().build()],
-            "cuda" => [ort::CUDAExecutionProvider::default().build()],
-            _ => todo!("Unsupported device name"),
-        };
-
-        let session = move || -> ort::Result<ort::Session> {
-            ort::init()
-                .with_name("smart-chess")
-                .with_execution_providers(device)
-                .commit()?;
-            ort::Session::builder()?
-                .with_optimization_level(ort::GraphOptimizationLevel::Level1)?
-                .with_intra_threads(1)?
-                .commit_from_file(checkpoint)
-        }();
-
-        let chess = game::ChessOnnx {
-            session: session.unwrap(),
-        };
-
-        NNPlayer {
-            game: chess,
-            n_rollout: n_rollout,
-            cpuct: cpuct,
-            temperature: temperature,
-        }
-    }
-}
-*/
 
 impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
@@ -251,7 +219,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     }
 }
 
-fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, trace: &mut Trace) {
+fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, trace: &mut Trace<chess::Move, chess::Outcome>) {
     let q_value = cursor.current().q_value;
     let all_children: Vec<(chess::Move, i32, f32)> = cursor
         .current()
@@ -277,7 +245,7 @@ fn play_loop<W, B>(
     black: &B,
     cursor: &mut MctsCursor,
     state: &mut chess::BoardState,
-    trace: &mut Trace,
+    trace: &mut Trace<chess::Move, chess::Outcome>,
 ) where
     W: Player + ?Sized,
     B: Player + ?Sized,
@@ -321,23 +289,14 @@ fn load_checkpoint<P: AsRef<Path>>(
 ) -> Box<dyn Player> {
     let path = path.as_ref();
     match path.extension().and_then(std::ffi::OsStr::to_str) {
-        /*
-        Some("onnx") => Box::new(NNPlayer::<game::ChessOnnx>::load(
+        Some("pt") => Box::new(NNPlayer::<ChessTS>::load(
             device,
             path,
             n_rollout,
             cpuct,
             temperature,
         )) as Box<SomeNNPlayer>,
-        */
-        Some("pt") => Box::new(NNPlayer::<game::ChessTS>::load(
-            device,
-            path,
-            n_rollout,
-            cpuct,
-            temperature,
-        )) as Box<SomeNNPlayer>,
-        Some("pt2") => Box::new(NNPlayer::<game::ChessEP>::load(
+        Some("pt2") => Box::new(NNPlayer::<ChessEP>::load(
             device,
             path,
             n_rollout,
@@ -368,7 +327,7 @@ fn main() {
     let mut trace = trace::Trace::new();
     let mut state = chess::BoardState::new();
     let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
-        step: (None, chess::Color::White),
+        step: chess::Step(None, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,

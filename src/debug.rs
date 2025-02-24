@@ -41,7 +41,7 @@ struct Args {
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
-fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
+fn debug_step(chess: chess::Chess, filename: &str, target_step: usize) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
     let trace: serde_json::Map<String, serde_json::Value> =
@@ -50,7 +50,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
 
     let mut state = chess::BoardState::new();
     let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
-        step: (None, chess::Color::White),
+        step: chess::Step(None, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
@@ -69,7 +69,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
         let parent = cursor.as_weak();
         cursor.current_mut().children.extend(legal_moves.into_iter().map(|m| {
                 Arc::new(RefCell::new(mcts::Node {
-                    step: (Some(m), !turn),
+                    step: chess::Step(Some(m), !turn),
                     depth: depth + 1,
                     q_value: 0.,
                     num_act: 0,
@@ -101,7 +101,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
                 chess::Color::Black
             };
             Arc::new(RefCell::new(mcts::Node {
-                step: (Some(mov), turn),
+                step: chess::Step(Some(mov), turn),
                 depth: depth + 1,
                 q_value: 0.,
                 num_act: num,
@@ -116,7 +116,7 @@ fn debug_step(chess: game::Chess, filename: &str, target_step: usize) {
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
-fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Args) {
+fn debug_trace(chess: chess::Chess, filename: &str, target_step: usize, args: &Args) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
     let trace: serde_json::Map<String, serde_json::Value> =
@@ -125,7 +125,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
 
     let mut state = chess::BoardState::new();
     let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
-        step: (None, chess::Color::White),
+        step: chess::Step(None, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
@@ -144,7 +144,7 @@ fn debug_trace(chess: game::Chess, filename: &str, target_step: usize, args: &Ar
         let parent = cursor.as_weak();
         cursor.current_mut().children.extend(legal_moves.into_iter().map(|m| {
             Arc::new(RefCell::new(mcts::Node {
-                step: (Some(m), !turn),
+                step: chess::Step(Some(m), !turn),
                 depth: depth + 1,
                 q_value: 0.,
                 num_act: 0,
@@ -272,7 +272,7 @@ fn bench_to_board() {
 
     let mut turn = chess::Color::White;
     let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
-        step: (None, turn),
+        step: chess::Step(None, turn),
         depth: 0,
         q_value: 0.,
         num_act: 0,
@@ -293,7 +293,7 @@ fn bench_to_board() {
         let depth = current.depth;
         let parent = cursor.as_weak();
         cursor.current_mut().children.push(Arc::new(RefCell::new(mcts::Node {
-            step: (Some(mov), !turn),
+            step: chess::Step(Some(mov), !turn),
             depth: depth + 1,
             q_value: 0.,
             num_act: 0,
@@ -331,7 +331,7 @@ fn main() {
 
     match r {
         Ok(nn) => {
-            let chess = game::Chess {
+            let chess = chess::Chess {
                 model: nn,
                 device: String::from("cuda"),
             };

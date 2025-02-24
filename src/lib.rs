@@ -25,7 +25,7 @@ fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
 fn encode_steps(
     steps: Vec<(chess::Move, Vec<(chess::Move, u32)>)>, apply_mirror: bool
 ) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
-    let mut history = chess::BoardHistory::new(game::LOOKBACK);
+    let mut history = chess::BoardHistory::new(chess::LOOKBACK);
     let mut board_state = chess::BoardState::new();
 
     let mut ret = Vec::new();
@@ -119,7 +119,7 @@ fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, 
 
 #[allow(dead_code)]
 struct ChessEngineState {
-    chess: game::ChessTS,
+    chess: chess::ChessTS,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
@@ -134,14 +134,14 @@ unsafe impl Send for ChessEngineState {}
 #[pyfunction]
 fn play_new(checkpoint: &str) -> PyResult<PyObject> {
     let device = tch::Device::Cuda(0);
-    let chess = game::ChessTS {
+    let chess = chess::ChessTS {
         model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
         device: device,
     };
 
     let board = chess::BoardState::new();
     let (cursor, root) = mcts::Cursor::new(mcts::Node {
-        step: (None::<chess::Move>, chess::Color::White),
+        step: chess::Step(None::<chess::Move>, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
@@ -230,7 +230,7 @@ fn play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject,
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
 
-        let (steps, prior, outcome) = game::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
+        let (steps, prior, outcome) = chess::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
         let steps = steps.into_pyobject(py)?.unbind().into_any();
         let prior = prior.into_pyobject(py)?.unbind().into_any();
         let outcome = outcome.into_pyobject(py)?.unbind().into_any();
