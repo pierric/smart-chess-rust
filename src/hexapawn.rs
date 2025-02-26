@@ -8,12 +8,13 @@ use serde::ser::SerializeMap;
 use tch::Tensor;
 use short_uuid::ShortUuid;
 use pyo3::prelude::*;
+use either::{Either, Left, Right};
 
 use crate::{mcts, game};
 use mcts::Cursor;
 use game::{Game, TchModel, State};
 
-pub const LOOKBACK: usize = 4;
+pub const LOOKBACK: usize = 2;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Square {
@@ -33,7 +34,7 @@ pub enum Color {
     White,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Serialize)]
 pub struct Step(pub Option<Move>, pub Color);
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -68,6 +69,28 @@ impl Not for Color {
     }
 }
 
+impl<'a> FromPyObject<'a> for Color {
+    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+        return obj.extract::<i32>().map(|v| match v {
+            0 => Color::Black,
+            1 => Color::White,
+            _ => panic!("bad value {} for color.", v)
+        });
+    }
+}
+
+impl<'a> IntoPyObject<'a> for Color {
+    type Target = pyo3::types::PyBool;
+    type Output = Bound<'a, Self::Target>;
+    type Error = pyo3::PyErr;
+
+    fn into_pyobject(self, py: Python<'a>) -> Result<Self::Output, Self::Error> {
+        let v: bool = self == Color::White;
+        let obj = v.into_pyobject(py)?;
+        Ok(obj.to_owned())
+    }
+}
+
 impl fmt::Display for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.from.symbol(), self.to.symbol())
@@ -81,6 +104,16 @@ impl fmt::Display for Step {
             Some(m) => write!(f, "{}", m),
         }?;
         write!(f, "/{}", self.1)
+    }
+}
+
+impl<'a> IntoPyObject<'a> for Step {
+    type Target = pyo3::types::PyTuple;
+    type Output = Bound<'a, Self::Target>;
+    type Error = pyo3::PyErr;
+
+    fn into_pyobject(self, py: Python<'a>) -> Result<Self::Output, Self::Error> {
+        (self.0, self.1).into_pyobject(py)
     }
 }
 
@@ -140,13 +173,13 @@ impl Square {
         let repr = symbol.as_bytes();
         assert_eq!(repr.len(), 2);
         let file = (repr[0] - b'a') as i32;
-        let rank = (repr[1] - b'0') as i32;
+        let rank = (repr[1] - b'1') as i32;
         Self{rank, file}
     }
 
     pub fn rotate(&self) -> Self {
         return Self {
-            rank: 3 - self.rank,
+            rank: 2 - self.rank,
             file: self.file,
         };
     }
@@ -155,6 +188,12 @@ impl Square {
 impl Move {
     pub fn uci(&self) -> String {
         format!("{}{}", self.from.symbol(), self.to.symbol())
+    }
+
+    pub fn from_uci(uci: &str) -> Self {
+        let from = Square::from_symbol(&uci[0..2]);
+        let to = Square::from_symbol(&uci[2..]);
+        Self {from, to}
     }
 
     pub fn rotate(&self) -> Self {
@@ -196,9 +235,7 @@ impl<'a> FromPyObject<'a> for Move {
     fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
         if obj.is_instance_of::<pyo3::types::PyString>() {
             let repr: String = FromPyObject::<'a>::extract_bound(obj)?;
-            let from = Square::from_symbol(&repr[0..2]);
-            let to = Square::from_symbol(&repr[2..]);
-            Ok(Move {from, to})
+            Ok(Move::from_uci(&repr))
         }
         else {
             use crate::chess;
@@ -207,6 +244,18 @@ impl<'a> FromPyObject<'a> for Move {
             let to = Square{rank: cmov.to.rank, file: cmov.to.file};
             Ok(Move {from, to})
         }
+    }
+}
+
+impl<'a> IntoPyObject<'a> for Move {
+    type Target = pyo3::types::PyString;
+    type Output = Bound<'a, Self::Target>; // in most cases this will be `Bound`
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'a>) -> Result<Self::Output, Self::Error> {
+        let repr = self.from.symbol().to_owned() + self.to.symbol();
+        let obj = repr.into_pyobject(py)?;
+        Ok(obj)
     }
 }
 
@@ -315,6 +364,7 @@ impl Board {
         self.set_piece(mov.to.rank, mov.to.file, Some(self.turn));
         self.set_piece(mov.from.rank, mov.from.file, None);
         self.turn = !self.turn;
+        self.halfmove_clock += 1;
     }
 
     pub fn outcome(&self) -> Option<Outcome> {
@@ -353,15 +403,19 @@ impl Board {
     }
 
     pub fn rotate(&self) -> Self {
+        fn flip(p: Option<Color>) -> Option<Color> {
+            p.map(|c| !c)
+        }
+
         let pieces = [
-            self.pieces[6], self.pieces[7], self.pieces[8],
-            self.pieces[3], self.pieces[4], self.pieces[5],
-            self.pieces[0], self.pieces[1], self.pieces[2],
+            flip(self.pieces[6]), flip(self.pieces[7]), flip(self.pieces[8]),
+            flip(self.pieces[3]), flip(self.pieces[4]), flip(self.pieces[5]),
+            flip(self.pieces[0]), flip(self.pieces[1]), flip(self.pieces[2]),
         ];
 
         return Self {
             last_move: self.last_move.map(|m| m.rotate()),
-            turn: !self.turn,
+            turn: self.turn,
             pieces,
             halfmove_clock: self.halfmove_clock,
             fullmove_number: self.fullmove_number,
@@ -386,10 +440,9 @@ impl Board {
     }
 
     pub fn encode_meta(&self) -> Array3<i32> {
-        let mut meta = Array3::<i32>::zeros((3, 3, 3));
+        let mut meta = Array3::<i32>::zeros((3, 3, 2));
         meta.slice_mut(s![.., .., 0]).fill(self.turn as i32);
-        meta.slice_mut(s![.., .., 1]).fill(self.fullmove_number as i32);
-        meta.slice_mut(s![.., .., 2]).fill(self.halfmove_clock as i32);
+        meta.slice_mut(s![.., .., 1]).fill(self.halfmove_clock as i32);
         return meta;
     }
 }
@@ -501,14 +554,15 @@ fn _encode(node: &mcts::ArcRefNode<Step>, state: &Board) -> (Array3<i8>, Array3<
 
     let start = cmp::max(steps.len(), LOOKBACK) - LOOKBACK;
     let mut board = Board::new();
+    history.push_front(board.clone());
 
     for m in &steps[0..start] {
         board.step(m);
     }
 
     for m in &steps[start..] {
-        history.push_back(board.clone());
         board.step(m);
+        history.push_front(board.clone());
     }
 
     let turn = node.borrow().step.1;
@@ -538,7 +592,7 @@ fn _prepare_tensors(boards: Array3<i8>, meta: Array3<i32>, device: tch::Device) 
         .unsqueeze(0)
 }
 
-fn _get_move_distribution(model_distr_output: Tensor, turn: Color, legal_moves: &Vec<Move>, return_full: bool) -> Vec<f32> {
+fn _get_move_distribution(model_distr_output: Tensor, turn: Color, next_steps: &Vec<Step>, return_full: bool) -> Vec<f32> {
     let full_distr = model_distr_output.to_dtype(tch::Kind::Float, true, false).to_device(tch::Device::Cpu);
 
     if return_full {
@@ -546,9 +600,10 @@ fn _get_move_distribution(model_distr_output: Tensor, turn: Color, legal_moves: 
     }
     else {
         // rotate if the next move is black
-        let encoded_moves: Vec<i64> = legal_moves
+        let encoded_moves: Vec<i64> = next_steps
             .iter()
-            .map(|m| {
+            .map(|step| {
+                let m = step.0.unwrap();
                 if turn == Color::Black {
                     m.rotate().encode() as i64
                 } else {
@@ -561,13 +616,11 @@ fn _get_move_distribution(model_distr_output: Tensor, turn: Color, legal_moves: 
     }
 }
 
-impl Game<Board> for ChessTS {
-    fn predict(
-        &self,
-        node: &mcts::ArcRefNode<Step>,
-        state: &Board,
-        argmax: bool,
-    ) -> (Vec<<Board as State>::Step>, Vec<f32>, f32) {
+
+pub fn _predict_raw_common<M: TchModel>(
+    m: &M, node: &mcts::ArcRefNode<Step>, state: &Board
+) -> Either<(Vec<Step>, Tensor, f32), f32> {
+
         let legal_moves = state.legal_moves();
 
         if legal_moves.is_empty() {
@@ -577,7 +630,7 @@ impl Game<Board> for ChessTS {
                 Some(Outcome::Checkmate(Color::Black)) => -1.0,
                 _ => 0.0,
             };
-            return (Vec::new(), Vec::new(), outcome);
+            return Right(outcome);
         }
 
         let (encoded_boards, encoded_meta) = _encode(&node, state);
@@ -585,10 +638,10 @@ impl Game<Board> for ChessTS {
 
         assert!(turn == state.turn(), "{} {}", turn, state.turn);
 
-        let inp = _prepare_tensors(encoded_boards, encoded_meta, self.device());
+        let inp = _prepare_tensors(encoded_boards, encoded_meta, m.device());
         let inp_debug = inp.alias_copy();
 
-        let (full_distr, score) = self.forward(inp);
+        let (full_distr, score) = m.forward(inp);
 
         let score = game::tensor_to_f32(score).unwrap();
         if !score.is_finite() {
@@ -599,15 +652,31 @@ impl Game<Board> for ChessTS {
             println!("input tensor is saved as {}", filename);
         }
 
-        let moves_distr = _get_move_distribution(full_distr, turn, &legal_moves, false);
-        let moves_distr = game::post_process_distr(moves_distr, argmax);
-
         let next_steps = legal_moves
             .into_iter()
             .map(|m| Step(Some(m), !turn))
             .collect();
 
-        return (next_steps, moves_distr, score);
+        Left((next_steps, full_distr, score))
+}
+
+impl Game<Board> for ChessTS {
+
+    fn predict(
+        &self,
+        node: &mcts::ArcRefNode<Step>,
+        state: &Board,
+        argmax: bool,
+    ) -> (Vec<Step>, Vec<f32>, f32) {
+        match _predict_raw_common(self, node, state) {
+            Right(outcome) => (vec![], vec![], outcome),
+            Left((next_steps, full_distr, score)) => {
+                let turn = node.borrow().step.1;
+                let moves_distr = _get_move_distribution(full_distr, turn, &next_steps, false);
+                let moves_distr = game::post_process_distr(moves_distr, argmax);
+                (next_steps, moves_distr, score)
+            },
+        }
     }
 
     fn reverse_q(&self, node: &mcts::ArcRefNode<Step>) -> bool {
@@ -616,52 +685,22 @@ impl Game<Board> for ChessTS {
 }
 
 impl Game<Board> for ChessEP {
+
     fn predict(
         &self,
         node: &mcts::ArcRefNode<Step>,
         state: &Board,
         argmax: bool,
     ) -> (Vec<<Board as State>::Step>, Vec<f32>, f32) {
-        let legal_moves = state.legal_moves();
-
-        if legal_moves.is_empty() {
-            // the model always tell the score at the white side
-            let outcome = match state.outcome() {
-                Some(Outcome::Checkmate(Color::White)) => 1.0,
-                Some(Outcome::Checkmate(Color::Black)) => -1.0,
-                _ => 0.0,
-            };
-            return (Vec::new(), Vec::new(), outcome);
+        match _predict_raw_common(self, node, state) {
+            Right(outcome) => (vec![], vec![], outcome),
+            Left((next_steps, full_distr, score)) => {
+                let turn = node.borrow().step.1;
+                let moves_distr = _get_move_distribution(full_distr, turn, &next_steps, false);
+                let moves_distr = game::post_process_distr(moves_distr, argmax);
+                (next_steps, moves_distr, score)
+            },
         }
-
-        let (encoded_boards, encoded_meta) = _encode(&node, state);
-        let turn = node.borrow().step.1;
-
-        assert!(turn == state.turn());
-
-        let inp = _prepare_tensors(encoded_boards, encoded_meta, self.device());
-        let inp_debug = inp.alias_copy();
-
-        let (full_distr, score) = self.forward(inp);
-
-        let score = game::tensor_to_f32(score).unwrap();
-        if !score.is_finite() {
-            let uuid = ShortUuid::generate();
-            let filename = format!("/tmp/{}.tensor", uuid);
-            inp_debug.save(std::path::Path::new(&filename)).unwrap();
-            println!("Warning: score is bad {:?}", score);
-            println!("input tensor is saved as {}", filename);
-        }
-
-        let moves_distr = _get_move_distribution(full_distr, turn, &legal_moves, false);
-        let moves_distr = game::post_process_distr(moves_distr, argmax);
-
-        let next_steps = legal_moves
-            .into_iter()
-            .map(|m| Step(Some(m), !turn))
-            .collect();
-
-        return (next_steps, moves_distr, score);
     }
 
     fn reverse_q(&self, node: &mcts::ArcRefNode<Step>) -> bool {
@@ -744,4 +783,36 @@ fn test_outcome_black() {
 
     let b = Board::from_str(" B W  B B", Color::Black);
     assert_eq!(b.outcome(), Some(Outcome::Checkmate(Color::Black)));
+}
+
+#[test]
+fn test_rotate_board() {
+    let b = Board::from_str("   BBBWWW", Color::Black);
+    let r = format!("{}", b.rotate());
+    assert_eq!(r, " | | \nw|w|w\nB|B|B\n");
+
+    let arr = b.encode_pieces();
+    assert_eq!(arr.shape(), [3,3,2]);
+    assert_eq!(arr.as_slice(), Some([
+        0,0,0,0,0,0,
+        1,0,1,0,1,0,
+        0,1,0,1,0,1,
+    ].as_slice()));
+
+    let arr = b.rotate().encode_pieces();
+    assert_eq!(arr.shape(), [3,3,2]);
+    assert_eq!(arr.as_slice(), Some([
+        1,0,1,0,1,0,
+        0,1,0,1,0,1,
+        0,0,0,0,0,0,
+    ].as_slice()));
+}
+
+#[test]
+fn test_rotate_move() {
+    let m = Move::from_uci("a3a2").rotate();
+    assert_eq!(m.uci(), "a1a2");
+
+    let m = Move::from_uci("c2b1").rotate();
+    assert_eq!(m.uci(), "c2b3");
 }

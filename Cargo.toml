@@ -17,6 +17,10 @@ name = "play"
 path = "src/play.rs"
 
 [[bin]]
+name = "hexapawn"
+path = "src/hexapawn_play.rs"
+
+[[bin]]
 name = "debug"
 path = "src/debug.rs"
 
@@ -48,6 +52,7 @@ once_cell = "1.19.0"
 c_str_macro = "1.0.3"
 short-uuid = "0.1.4"
 aotinductor = "0.1.2"
+either = "1.14.0"
 
 [profile.release]
 debug = true

@@ -5,24 +5,22 @@ use rand::{thread_rng, Rng};
 use std::boxed::Box;
 use std::cmp::Eq;
 use std::path::Path;
-use std::sync::Arc;
-use std::cell::{RefCell, Ref};
+use std::cell::{Ref};
 use trace::Trace;
-use uci::Engine;
 
-mod chess;
 mod game;
-mod knightmoves;
 mod mcts;
-mod queenmoves;
 mod trace;
+mod hexapawn;
+mod chess;
+mod knightmoves;
+mod queenmoves;
 mod underpromotions;
 
-use chess::{ChessTS, ChessEP};
+use hexapawn::{ChessTS, ChessEP};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
 enum Opponent {
-    Stockfish,
     NN,
 }
 
@@ -35,14 +33,8 @@ struct Args {
     #[arg(long, default_value = "<not-specified>")]
     black_device: String,
 
-    #[arg(long, value_enum, default_value_t = Opponent::Stockfish)]
+    #[arg(long, value_enum, default_value_t = Opponent::NN)]
     black_type: Opponent,
-
-    #[arg(long, default_value = "/usr/bin/stockfish")]
-    stockfish_bin: String,
-
-    #[arg(long, default_value_t = 0)]
-    stockfish_level: i32,
 
     #[arg(long, default_value = "<not-specified>")]
     black_checkpoint: String,
@@ -63,67 +55,13 @@ struct Args {
     output: String,
 }
 
-type MctsCursor = mcts::Cursor<chess::Step>;
+type MctsCursor = mcts::Cursor<hexapawn::Step>;
 
 trait Player {
-    fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize>;
+    fn bestmove(&self, cursor: &mut MctsCursor, state: &hexapawn::Board) -> Option<usize>;
 }
 
-struct StockfishPlayer {
-    engine: Engine,
-}
-
-impl StockfishPlayer {
-    fn load(stockfish_path: &str, skill_level: i32) -> Self {
-        let engine = Engine::new(stockfish_path).unwrap();
-        engine
-            .set_option("Skill Level", &skill_level.to_string())
-            .unwrap();
-        StockfishPlayer { engine }
-    }
-}
-
-impl Player for StockfishPlayer {
-    fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
-        self.engine.set_position(&state.fen()).unwrap();
-        let next = self
-            .engine
-            .bestmove()
-            .ok()
-            .map(|m| chess::Move::from_uci(&m))?;
-
-        let mut choice: Option<usize> = None;
-        let legal_moves = state.legal_moves();
-        let turn = state.turn();
-        let parent = cursor.as_weak();
-        let depth = cursor.current().depth;
-
-        {
-            let mut mut_node = cursor.current_mut();
-            mut_node.children.clear();
-            for (index, mov) in legal_moves.into_iter().enumerate() {
-                let mut num_act = 0;
-                if mov == next {
-                    choice = Some(index);
-                    num_act = 1;
-                }
-                mut_node.children.push(Arc::new(RefCell::new(mcts::Node {
-                    step: chess::Step(Some(mov), !turn),
-                    depth: depth + 1,
-                    q_value: 0.,
-                    num_act: num_act,
-                    parent: Some(parent.clone()),
-                    children: Vec::new(),
-                })));
-            }
-        }
-
-        assert!(choice.is_some());
-        choice
-    }
-}
-
-struct NNPlayer<G: game::Game<chess::BoardState>> {
+struct NNPlayer<G: game::Game<hexapawn::Board>> {
     n_rollout: i32,
     cpuct: f32,
     temperature: f32,
@@ -158,6 +96,7 @@ impl NNPlayer<ChessEP> {
         let device = match device {
             "cpu" => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
+            "mps" => tch::Device::Mps,
             _ => todo!("Unsupported device name"),
         };
 
@@ -176,8 +115,8 @@ impl NNPlayer<ChessEP> {
 
 }
 
-impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
-    fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
+impl<G: game::Game<hexapawn::Board>> Player for NNPlayer<G> {
+    fn bestmove(&self, cursor: &mut MctsCursor, state: &hexapawn::Board) -> Option<usize> {
         mcts::mcts(
             &self.game,
             cursor.arc(),
@@ -197,7 +136,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             return None;
         }
 
-        let temperature = if cursor.current().depth < 30 {1.0} else {self.temperature};
+        let temperature = self.temperature; // if cursor.current().depth < 30 {1.0} else {self.temperature};
 
         let choice: usize = if temperature == 0.0 {
             let max = num_act_vec.iter().max().unwrap();
@@ -220,9 +159,9 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     }
 }
 
-fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, trace: &mut Trace<chess::Move, chess::Outcome>) {
+fn step(choice: usize, cursor: &mut MctsCursor, state: &mut hexapawn::Board, trace: &mut Trace<hexapawn::Move, hexapawn::Outcome>) {
     let q_value = cursor.current().q_value;
-    let all_children: Vec<(chess::Move, i32, f32)> = cursor
+    let all_children: Vec<(hexapawn::Move, i32, f32)> = cursor
         .current()
         .children
         .iter()
@@ -238,15 +177,15 @@ fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, t
     let turn = !step.1;
     println!("{}: {}", turn, mov);
     trace.push(Some(mov), q_value, all_children);
-    state.next(&mov);
+    state.step(&mov);
 }
 
 fn play_loop<W, B>(
     white: &W,
     black: &B,
     cursor: &mut MctsCursor,
-    state: &mut chess::BoardState,
-    trace: &mut Trace<chess::Move, chess::Outcome>,
+    state: &mut hexapawn::Board,
+    trace: &mut Trace<hexapawn::Move, hexapawn::Outcome>,
 ) where
     W: Player + ?Sized,
     B: Player + ?Sized,
@@ -326,9 +265,9 @@ fn main() {
     let args = args;
 
     let mut trace = trace::Trace::new();
-    let mut state = chess::BoardState::new();
+    let mut state = hexapawn::Board::new();
     let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
-        step: chess::Step(None, chess::Color::White),
+        step: hexapawn::Step(None, hexapawn::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
@@ -348,17 +287,6 @@ fn main() {
     use std::borrow::Borrow;
 
     match args.black_type {
-        Opponent::Stockfish => {
-            let black = StockfishPlayer::load(&args.stockfish_bin, args.stockfish_level);
-            println!("Players loaded.");
-            play_loop::<SomeNNPlayer, StockfishPlayer>(
-                white.borrow(),
-                &black,
-                &mut cursor,
-                &mut state,
-                &mut trace,
-            );
-        }
         Opponent::NN => {
             let black = load_checkpoint(
                 args.black_checkpoint,

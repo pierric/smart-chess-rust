@@ -323,6 +323,141 @@ fn hexapawn_encode_steps(
     Ok(ret)
 }
 
+#[allow(dead_code)]
+struct HexapawnEngineState {
+    chess: hexapawn::ChessTS,
+    board: hexapawn::Board,
+    root: mcts::ArcRefNode<hexapawn::Step>,
+    cursor: mcts::Cursor<hexapawn::Step>,
+}
+
+
+// NOTE: it is not possible to be Send safely without adding locks, as the cursor part
+// carries mutable data. But for the use case, it is just right to fake a Send impl,
+// so that we can wrap it into a PyCapsule.
+unsafe impl Send for HexapawnEngineState {}
+
+#[pyfunction]
+fn hexapawn_play_new(checkpoint: &str, initial_moves: Vec<hexapawn::Move>, device: &str) -> PyResult<PyObject> {
+    let device = match device {
+        "cpu" => tch::Device::Cpu,
+        "cuda" => tch::Device::Cuda(0),
+        "mps" => tch::Device::Mps,
+        _ => todo!("Unsupported device name"),
+    };
+
+    let chess = hexapawn::ChessTS {
+        model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
+        device: device,
+    };
+
+    let mut board = hexapawn::Board::new();
+    let (mut cursor, root) = mcts::Cursor::new(mcts::Node {
+        step: hexapawn::Step(None, hexapawn::Color::White),
+        depth: 0,
+        q_value: 0.,
+        num_act: 0,
+        parent: None,
+        children: Vec::new(),
+    });
+
+    let mut turn = hexapawn::Color::White;
+    use std::sync::Arc;
+
+    for mov in initial_moves {
+        board.step(&mov);
+        let child = {
+            Arc::new(RefCell::new(mcts::Node {
+                step: hexapawn::Step(Some(mov), !turn),
+                depth: cursor.current().depth + 1,
+                q_value: 0.,
+                num_act: 0,
+                parent: Some(cursor.as_weak()),
+                children: Vec::new(),
+            }))
+        };
+        cursor.current_mut().children = vec![child];
+        cursor.navigate_down(0);
+        turn = !turn;
+    }
+
+    let state = RefCell::new(HexapawnEngineState {
+        chess: chess,
+        board: board,
+        root: root,
+        cursor: cursor,
+    });
+
+    Python::with_gil(|py| {
+        let capsule = PyCapsule::new(py, state, None).unwrap();
+        Ok(capsule.unbind().into_any())
+    })
+}
+
+#[pyfunction]
+fn hexapawn_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<RefCell<HexapawnEngineState>>().borrow() };
+        mcts::mcts(
+            &state.chess, state.cursor.arc(), &state.board, rollout, Some(cpuct), true
+        );
+    })
+}
+
+#[pyfunction]
+fn hexapawn_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<RefCell<HexapawnEngineState>>().borrow() };
+        let json = serde_json::to_string(&*state.root.borrow()).unwrap();
+        let json_module = py.import("json")?;
+        let ret = json_module.getattr("loads")?.call1((json,))?.unbind();
+        Ok(ret)
+    })
+}
+
+#[pyfunction]
+fn hexapawn_play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject, PyObject, PyObject)> {
+    Python::with_gil(|py| {
+        let state = unsafe { state.bind(py).reference::<RefCell<HexapawnEngineState>>().borrow() };
+
+        if full_distr {
+            use pyo3::types::PyList;
+            match hexapawn::_predict_raw_common(&state.chess, &state.cursor.arc(), &state.board) {
+                either::Right(outcome) => Ok((
+                    PyList::empty(py).unbind().into_any(),
+                    PyList::empty(py).unbind().into_any(),
+                    outcome.into_pyobject(py)?.unbind().into_any()
+                )),
+                either::Left((steps, distr, outcome)) => {
+                    let steps = steps.into_pyobject(py)?.unbind().into_any();
+                    let distr = Vec::<f32>::try_from(distr.exp().squeeze()).unwrap();
+                    let distr = distr.into_pyobject(py)?.unbind().into_any();
+                    let outcome = outcome.into_pyobject(py)?.unbind().into_any();
+                    Ok((steps, distr, outcome))
+                }
+            } 
+        }
+        else {
+            use game::Game;
+            let (steps, prior, outcome) = state.chess.predict(&state.cursor.arc(), &state.board, false);
+            let steps = steps.into_pyobject(py)?.unbind().into_any();
+            let prior = prior.into_pyobject(py)?.unbind().into_any();
+            let outcome = outcome.into_pyobject(py)?.unbind().into_any();
+            Ok((steps, prior, outcome))
+        }
+    })
+}
+
+#[pyfunction]
+fn hexapawn_encode_move(mov: hexapawn::Move, rotate: bool) -> PyResult<i32> {
+    if rotate {
+        Ok(mov.rotate().encode())
+    }
+    else {
+        Ok(mov.encode())
+    }
+}
+
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
@@ -339,6 +474,11 @@ fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(chess_play_inference, m)?)?;
 
     m.add_function(wrap_pyfunction!(hexapawn_encode_steps, m)?)?;
+    m.add_function(wrap_pyfunction!(hexapawn_play_new, m)?)?;
+    m.add_function(wrap_pyfunction!(hexapawn_play_mcts, m)?)?;
+    m.add_function(wrap_pyfunction!(hexapawn_play_dump_search_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(hexapawn_play_inference, m)?)?;
+    m.add_function(wrap_pyfunction!(hexapawn_encode_move, m)?)?;
 
     Ok(())
 }
