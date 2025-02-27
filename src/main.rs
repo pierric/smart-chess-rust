@@ -101,7 +101,7 @@ fn main() {
     let mut state = chess::BoardState::new();
 
     let (mut cursor, _root) = mcts::Cursor::new(mcts::Node {
-        step: (None, chess::Color::White),
+        step: chess::Step(None, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
