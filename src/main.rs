@@ -35,6 +35,9 @@ struct Args {
 
     #[arg(long, default_value_t = 1.0)]
     cpuct: f32,
+
+    #[arg(long, default_value_t = 30)]
+    temperature_switch: i32,
 }
 
 fn main() {
@@ -59,11 +62,11 @@ fn main() {
     };
 
     let chess: Box<dyn game::Game<chess::BoardState>> = match Path::new(&args.checkpoint).extension().and_then(|s| s.to_str()) {
-        Some("pt") => Box::new(game::ChessTS {
+        Some("pt") => Box::new(chess::ChessTS {
             model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
             device: device,
         }),
-        Some("pt2") => Box::new(game::ChessEP {
+        Some("pt2") => Box::new(chess::ChessEP {
             model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
             device: device,
         }),
@@ -108,7 +111,7 @@ fn main() {
     let mut outcome = None;
 
     for i in 0..args.num_steps {
-        let temperature = if i < 30 { 1.0 } else { args.temperature };
+        let temperature = if i < args.temperature_switch { 1.0 } else { args.temperature };
 
         let rollout = match (args.rollout_factor, args.rollout_num) {
             (Some(v), None) => i32::max(200, (state.legal_moves().len() as f32 * v) as i32),

@@ -1,14 +1,14 @@
-use crate::chess;
 use std::fs::File;
 use std::io::Write;
+use serde::Serialize;
 
-pub struct Trace {
-    steps: Vec<(Option<chess::Move>, f32, Vec<(chess::Move, i32, f32)>)>,
-    outcome: Option<chess::Outcome>,
+pub struct Trace<M, O> {
+    steps: Vec<(Option<M>, f32, Vec<(M, i32, f32)>)>,
+    outcome: Option<O>,
 }
 
 #[allow(dead_code)]
-impl Trace {
+impl<M, O> Trace<M, O> where M: Serialize, O: Serialize {
     pub fn new() -> Self {
         Trace {
             steps: Vec::new(),
@@ -30,14 +30,14 @@ impl Trace {
     #[allow(dead_code)]
     pub fn push(
         &mut self,
-        mov: Option<chess::Move>,
+        mov: Option<M>,
         q_value: f32,
-        children: Vec<(chess::Move, i32, f32)>,
+        children: Vec<(M, i32, f32)>,
     ) {
         self.steps.push((mov, q_value, children));
     }
 
-    pub fn set_outcome(&mut self, outcome: chess::Outcome) {
+    pub fn set_outcome(&mut self, outcome: O) {
         self.outcome = Some(outcome);
     }
 }

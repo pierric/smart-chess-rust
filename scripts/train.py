@@ -17,7 +17,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, Callback
 
 from dataset import ChessDataset, ValidationDataset
-from nn import load_model
+from module import load_model
 
 
 class ChessLightningModule(L.LightningModule):
@@ -81,7 +81,7 @@ class ChessLightningModule(L.LightningModule):
             loss2 = self.compute_loss2(value_pred, outcome)
 
         else:
-            batch_size_supervised = self.config["batch_size"] // 2
+            batch_size_supervised = self.config["train_batch_size"] // 2
 
             boards_supervised = boards[:batch_size_supervised]
             dist_supervised = dist[:batch_size_supervised]
@@ -229,6 +229,7 @@ def main():
     parser.add_argument("--model-conf", type=str, default=None)
     parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
     parser.add_argument("--train-batch-size", type=int, default=1024)
+    parser.add_argument("--val-batch-size", type=int, default=128)
     parser.add_argument(
         "--lr-scheduler", type=str, choices=["constant", "onecycle"], default="constant"
     )
@@ -285,7 +286,7 @@ def main():
     val_syn = DataLoader(
         val_syn_split,
         num_workers=4,
-        batch_size=128,
+        batch_size=args.val_batch_size,
         shuffle=False,
         drop_last=True,
         persistent_workers=True,
@@ -294,14 +295,15 @@ def main():
     val_real = DataLoader(
         ValidationDataset(args.val_data),
         num_workers=4,
-        batch_size=128,
+        batch_size=args.val_batch_size,
         shuffle=False,
         drop_last=True,
         persistent_workers=True,
     )
 
     config = dict(
-        batch_size=args.train_batch_size,
+        train_batch_size=args.train_batch_size,
+        val_batch_size=args.val_batch_size,
         epochs=args.epochs,
         steps_per_epoch=len(train_loader),
         lr=args.lr,
@@ -313,7 +315,7 @@ def main():
         save_every_k=args.save_every_k,
         loss_weight=args.loss_weight,
         compile_model=compile_model,
-        model_conf=TransferConf.parse(args.model_conf) or int(args.model_conf),
+        model_conf=None if args.model_conf is None else TransferConf.parse(args.model_conf) or int(args.model_conf),
         freeze_backbone=args.freeze_backbone,
         lr_scheduler=args.lr_scheduler,
     )

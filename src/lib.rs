@@ -13,7 +13,7 @@ pub mod queenmoves;
 pub mod underpromotions;
 
 #[pyfunction]
-fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
+fn chess_encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
     Ok(if turn == chess::Color::Black {
         mov.rotate().encode()
     } else {
@@ -22,10 +22,10 @@ fn encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
 }
 
 #[pyfunction]
-fn encode_steps(
+fn chess_encode_steps(
     steps: Vec<(chess::Move, Vec<(chess::Move, u32)>)>, apply_mirror: bool
 ) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
-    let mut history = chess::BoardHistory::new(game::LOOKBACK);
+    let mut history = chess::BoardHistory::new(chess::LOOKBACK);
     let mut board_state = chess::BoardState::new();
 
     let mut ret = Vec::new();
@@ -104,7 +104,7 @@ fn encode_steps(
 }
 
 #[pyfunction]
-fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, PyObject)> {
+fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, PyObject)> {
     Python::with_gil(|py| {
         let board = if view == chess::Color::White {
             board
@@ -119,7 +119,7 @@ fn encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, 
 
 #[allow(dead_code)]
 struct ChessEngineState {
-    chess: game::ChessTS,
+    chess: chess::ChessTS,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
@@ -132,16 +132,16 @@ struct ChessEngineState {
 unsafe impl Send for ChessEngineState {}
 
 #[pyfunction]
-fn play_new(checkpoint: &str) -> PyResult<PyObject> {
+fn chess_play_new(checkpoint: &str) -> PyResult<PyObject> {
     let device = tch::Device::Cuda(0);
-    let chess = game::ChessTS {
+    let chess = chess::ChessTS {
         model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
         device: device,
     };
 
     let board = chess::BoardState::new();
     let (cursor, root) = mcts::Cursor::new(mcts::Node {
-        step: (None::<chess::Move>, chess::Color::White),
+        step: chess::Step(None::<chess::Move>, chess::Color::White),
         depth: 0,
         q_value: 0.,
         num_act: 0,
@@ -162,7 +162,7 @@ fn play_new(checkpoint: &str) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
+fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         mcts::mcts(
@@ -172,7 +172,7 @@ fn play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
 }
 
 #[pyfunction]
-fn play_step(state: Py<PyCapsule>, temp: f32) {
+fn chess_play_step(state: Py<PyCapsule>, temp: f32) {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow_mut() };
         let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
@@ -181,7 +181,7 @@ fn play_step(state: Py<PyCapsule>, temp: f32) {
 }
 
 #[pyfunction]
-fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)>{
+fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)>{
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         let board = Py::clone_ref(&state.board.python_object, py);
@@ -215,7 +215,7 @@ fn play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject,
 }
 
 #[pyfunction]
-fn play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
+fn chess_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
         let json = serde_json::to_string(&*state.root.borrow()).unwrap();
@@ -226,11 +226,11 @@ fn play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-fn play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject, PyObject, PyObject)> {
+fn chess_play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject, PyObject, PyObject)> {
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
 
-        let (steps, prior, outcome) = game::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
+        let (steps, prior, outcome) = chess::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
         let steps = steps.into_pyobject(py)?.unbind().into_any();
         let prior = prior.into_pyobject(py)?.unbind().into_any();
         let outcome = outcome.into_pyobject(py)?.unbind().into_any();
@@ -243,14 +243,14 @@ fn play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject,
 /// import the module.
 #[pymodule]
 fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(encode_board, m)?)?;
-    m.add_function(wrap_pyfunction!(encode_move, m)?)?;
-    m.add_function(wrap_pyfunction!(encode_steps, m)?)?;
-    m.add_function(wrap_pyfunction!(play_new, m)?)?;
-    m.add_function(wrap_pyfunction!(play_mcts, m)?)?;
-    m.add_function(wrap_pyfunction!(play_step, m)?)?;
-    m.add_function(wrap_pyfunction!(play_inspect, m)?)?;
-    m.add_function(wrap_pyfunction!(play_dump_search_tree, m)?)?;
-    m.add_function(wrap_pyfunction!(play_inference, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_encode_board, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_encode_move, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_encode_steps, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_new, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_mcts, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_step, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_inspect, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_dump_search_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_inference, m)?)?;
     Ok(())
 }

@@ -8,6 +8,7 @@ use std::iter::Sum;
 use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
 use std::cell::{RefCell, Ref, RefMut};
+use std::fmt::Display;
 
 pub type ArcRefNode<T> = Arc<RefCell<Node<T>>>;
 type WeakRefNode<T> = Weak<RefCell<Node<T>>>;
@@ -87,7 +88,7 @@ where
 
 fn backward<T>(path: &VecDeque<ArcRefNode<T>>, reward: f32)
 where
-    T: std::fmt::Debug,
+    T: Display,
 {
     for node in path {
         let mut v: RefMut<'_, _> = node.borrow_mut();
@@ -137,7 +138,7 @@ fn select<'a, G, S>(
 where
     G: Game<S> + ?Sized,
     S: State,
-    S::Step: std::fmt::Debug,
+    S::Step: Display,
 {
     //Descend in the tree until some leaf, exploiting the knowledge to choose
     //the best child each time.
@@ -219,11 +220,19 @@ where
     }
 }
 
+impl<T> Node<T> {
+    pub fn reset(&mut self) {
+        self.q_value = 0.;
+        self.num_act = 0;
+        self.children = vec![];
+    }
+}
+
 pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>, with_noise: bool)
 where
     G: Game<S> + ?Sized,
     S: State,
-    S::Step: std::fmt::Debug,
+    S::Step: Display,
 {
     let default_cpuct: f32 = 1.2;
     let cpuct = cpuct.unwrap_or(default_cpuct);
@@ -269,6 +278,7 @@ pub fn step<S>(cursor: &mut Cursor<S::Step>, state: &mut S, temp: f32) -> Option
 where
     S: State,
     S::Step: Copy,
+    S::Step: Display,
 {
     let num_act_vec: Vec<_> = cursor
         .current()
@@ -298,7 +308,7 @@ where
     // discarding the exploration of the sub-nodes. It isn't
     // clearly said in AlphaZero's paper, but a restart helps
     // the dirichlet noise to apply.
-    cursor.current_mut().children = vec![];
+    cursor.current_mut().reset();
 
     let step = &cursor.current().step;
     State::advance(state, step);
