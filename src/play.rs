@@ -233,6 +233,8 @@ fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, t
         .collect();
 
     cursor.navigate_down(choice);
+    cursor.current_mut().reset();
+
     let step = cursor.current().step;
     let mov = step.0.unwrap();
     let turn = !step.1;

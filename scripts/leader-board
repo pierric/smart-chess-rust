@@ -2,15 +2,12 @@
 
 task() {
   JOB_ID=$1
-  BASE=$2
-  VER=$3
-  WHITE="$BASE/$VER"
-  shift 3
+  shift 1
 
-  echo "Run index ${JOB_ID}: W: ${WHITE} B: ${BLACK} ARGS: $@" | tee "replay/meta"
-  cargo r --release --bin play -- \
-    --white-device cuda --white-checkpoint $WHITE \
-    --black-device cuda --black-checkpoint ${BLACK} \
+  echo "Run index ${JOB_ID}: W: ${W} B: ${B} ARGS: $@" | tee "replay/meta"
+  cargo r --release --bin ${GAME} -- \
+    --white-device ${DEVICE} --white-checkpoint ${W} \
+    --black-device ${DEVICE} --black-checkpoint ${B} \
     -o "replay/${JOB_ID}.json" \
     $@
 }
@@ -20,15 +17,17 @@ export -f task
 #set -ex
 ## export BLACK=''
 ## parallel -j3 task {#} 3 version_0 99 -d cuda --rollout=300 --temperature 0 --cpuct 1 ::: $(seq 1 100)
-export BLACK="${BLACK:-runs/017/tb_logs/chess/version_13/step:469-3.548-0.326.pt2}"
-export WHITEBASE="${WHITEBASE:-tb_logs/chess/version_3}"
-export WHITEVER="${WHITEVER:-step:1008-3.512-0.768.pt2}"
+export B="${B:-runs/017/tb_logs/chess/version_13/step:469-3.548-0.326.pt2}"
+export W="${W:-tb_logs/chess/version_3/last.pt2}"
 
 ROLLOUT=${ROLLOUT:-20}
 TEMPERATURE=${TEMPERATURE:-0}
 CPUCT=${CPUCT:-2.5}
+GAME=${GAME:-play}
+DEVICE=${DEVICE:-cuda}
+P=${P:-1}
 
 mkdir -p "$PWD/replay"
 rm -f $PWD/replay/*.json
 echo "Results are saved in $PWD/replay"
-parallel --linebuffer -j1 task {#} $WHITEBASE $WHITEVER --rollout=$ROLLOUT --temperature $TEMPERATURE --cpuct $CPUCT ::: $(seq 1 100)
+parallel --linebuffer -j${P} task {#} --rollout=$ROLLOUT --temperature $TEMPERATURE --cpuct $CPUCT ::: $(seq 1 100)

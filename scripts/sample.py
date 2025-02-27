@@ -80,33 +80,45 @@ def split(args):
 
     df = pd.DataFrame([{"filename": f, "result": _get_result(f)} for f in tqdm(files)])
     groups = df.groupby(by="result")
-    nmax = groups.count().loc[["White", "Black"]].max().item()
 
-    w = groups.get_group("White")
-    b = groups.get_group("Black")
+    group_keys = groups.groups.keys()
 
-    w = w.sample(frac=1).reset_index(drop=True)
-    b = b.sample(frac=1).reset_index(drop=True)
+    if "White" in group_keys and "Black" in group_keys:
+        nmax = groups.count().loc[["White", "Black"]].max().item()
 
-    if args.sample_draw == "sample":
-        d = groups.get_group("draw").sample(n=nmax)
-    elif args.sample_draw == "keep-all":
-        d = groups.get_group("draw")
-        d = d.sample(frac=1).reset_index(drop=True)
+        w = groups.get_group("White")
+        b = groups.get_group("Black")
+
+        w = w.sample(frac=1).reset_index(drop=True)
+        b = b.sample(frac=1).reset_index(drop=True)
+
+        groups = [w, b]
+
+        if "draw" in group_keys:
+            if args.sample_draw == "sample":
+                d = groups.get_group("draw").sample(n=nmax)
+            elif args.sample_draw == "keep-all":
+                d = groups.get_group("draw")
+                d = d.sample(frac=1).reset_index(drop=True)
+            else:
+                assert "bad value for --sample-draw"
+
+            groups.append(d)
+
     else:
-        assert "bad value for --sample-draw"
+        assert args.sample_draw == "keep-all"
+        groups = [groups.get_group(g).sample(frac=1).reset_index(drop=True) for g in group_keys]
+
 
     def _split(d):
         nval = int(len(d) * args.ratio)
         assert nval > 0
         return d.iloc[:nval], d.iloc[nval:]
 
-    val_d, train_d = _split(d)
-    val_w, train_w = _split(w)
-    val_b, train_b = _split(b)
+    val, train = zip(*[_split(g) for g in groups])
 
-    val = pd.concat([val_d, val_w, val_b])
-    train = pd.concat([train_d, train_w, train_b])
+    val = pd.concat(val)
+    train = pd.concat(train)
 
     print(f"val split: {len(val)} samples")
     print(f"train split: {len(train)} samples")

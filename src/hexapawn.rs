@@ -54,8 +54,6 @@ pub struct BoardHistory {
 #[derive(PartialOrd, PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum Outcome {
     Checkmate(Color),
-    Stalemate,
-    InsufficientMaterial,
 }
 
 impl Not for Color {
@@ -152,7 +150,6 @@ impl Serialize for Outcome {
         let mut res = serializer.serialize_map(Some(1))?;
         match self {
             Outcome::Checkmate(color) => { res.serialize_entry("winner", color)?; }
-            _ => { res.serialize_entry("winner", &None::<Color>)?; }
         }
         res.end()
     }
@@ -381,22 +378,7 @@ impl Board {
         }
 
         if self.possible_moves().is_empty() {
-            return Some(Outcome::Stalemate);
-        }
-
-        let mut cnt_white = 0;
-        let mut cnt_black = 0;
-
-        for p in self.pieces {
-            match p {
-                Some(Color::White) => {cnt_white += 1; },
-                Some(Color::Black) => {cnt_black += 1; },
-                None => {},
-            }
-        }
-
-        if cnt_white == 0 || cnt_black == 0 {
-            return Some(Outcome::InsufficientMaterial)
+            return Some(Outcome::Checkmate(!self.turn));
         }
 
         None

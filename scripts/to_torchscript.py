@@ -42,7 +42,7 @@ def main():
             inference=True,
             compile=False,
         )
-        inp_shape = (11, 3, 3)
+        inp_shape = (6, 3, 3)
 
     import export
     routing = {

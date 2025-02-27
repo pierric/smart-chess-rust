@@ -220,6 +220,14 @@ where
     }
 }
 
+impl<T> Node<T> {
+    pub fn reset(&mut self) {
+        self.q_value = 0.;
+        self.num_act = 0;
+        self.children = vec![];
+    }
+}
+
 pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>, with_noise: bool)
 where
     G: Game<S> + ?Sized,
@@ -300,7 +308,7 @@ where
     // discarding the exploration of the sub-nodes. It isn't
     // clearly said in AlphaZero's paper, but a restart helps
     // the dirichlet noise to apply.
-    cursor.current_mut().children = vec![];
+    cursor.current_mut().reset();
 
     let step = &cursor.current().step;
     State::advance(state, step);
