@@ -267,8 +267,8 @@ where
             .collect();
         cur.borrow_mut().children = children;
 
-        // skip the root (not participating the decision) for reward.
-        path.pop_front();
+        // ?? skip the root (not participating the decision) for reward.
+        // path.pop_front();
         backward(&mut path, reward);
     }
 }

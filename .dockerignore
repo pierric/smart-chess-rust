@@ -1,0 +1,11 @@
+*.svg
+*.tensor
+.venv/
+runs/
+L9/
+L13/
+tmp/
+replay/
+notebooks/
+target/
+__pycache__
