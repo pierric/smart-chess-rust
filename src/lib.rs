@@ -132,8 +132,14 @@ struct ChessEngineState {
 unsafe impl Send for ChessEngineState {}
 
 #[pyfunction]
-fn chess_play_new(checkpoint: &str) -> PyResult<PyObject> {
-    let device = tch::Device::Cuda(0);
+fn chess_play_new(checkpoint: &str, device: &str) -> PyResult<PyObject> {
+    let device = match device {
+        "cpu" => tch::Device::Cpu,
+        "cuda" => tch::Device::Cuda(0),
+        "mps" => tch::Device::Mps,
+        _ => todo!("Unsupported device name"),
+    };
+
     let chess = chess::ChessTS {
         model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
         device: device,
