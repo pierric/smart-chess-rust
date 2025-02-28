@@ -92,7 +92,7 @@ def split(args):
         w = w.sample(frac=1).reset_index(drop=True)
         b = b.sample(frac=1).reset_index(drop=True)
 
-        groups = [w, b]
+        groups_col = [w, b]
 
         if "draw" in group_keys:
             if args.sample_draw == "sample":
@@ -103,19 +103,21 @@ def split(args):
             else:
                 assert "bad value for --sample-draw"
 
-            groups.append(d)
+            groups_col.append(d)
 
     else:
         assert args.sample_draw == "keep-all"
-        groups = [groups.get_group(g).sample(frac=1).reset_index(drop=True) for g in group_keys]
-
+        groups_col = [
+            groups.get_group(g).sample(frac=1).reset_index(drop=True)
+            for g in group_keys
+        ]
 
     def _split(d):
         nval = int(len(d) * args.ratio)
         assert nval > 0
         return d.iloc[:nval], d.iloc[nval:]
 
-    val, train = zip(*[_split(g) for g in groups])
+    val, train = zip(*[_split(g) for g in groups_col])
 
     val = pd.concat(val)
     train = pd.concat(train)

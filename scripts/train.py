@@ -227,7 +227,7 @@ def main():
     parser.add_argument("--save-start", type=int, default=10)
     parser.add_argument("--save-end", type=int, default=0)
     parser.add_argument("--model-conf", type=str, default=None)
-    parser.add_argument("--val-data", type=str, default="py/validation/sample.csv")
+    parser.add_argument("--real-play", type=str, default="py/validation/sample.csv")
     parser.add_argument("--train-batch-size", type=int, default=1024)
     parser.add_argument("--val-batch-size", type=int, default=128)
     parser.add_argument(
@@ -293,7 +293,7 @@ def main():
     )
 
     val_real = DataLoader(
-        ValidationDataset(args.val_data),
+        ValidationDataset(args.real_play),
         num_workers=4,
         batch_size=args.val_batch_size,
         shuffle=False,
@@ -315,7 +315,9 @@ def main():
         save_every_k=args.save_every_k,
         loss_weight=args.loss_weight,
         compile_model=compile_model,
-        model_conf=None if args.model_conf is None else TransferConf.parse(args.model_conf) or int(args.model_conf),
+        model_conf=None
+        if args.model_conf is None
+        else TransferConf.parse(args.model_conf) or int(args.model_conf),
         freeze_backbone=args.freeze_backbone,
         lr_scheduler=args.lr_scheduler,
     )

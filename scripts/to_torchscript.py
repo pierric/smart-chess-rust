@@ -25,7 +25,8 @@ def main():
     args = parser.parse_args()
 
     assert args.n_res_blocks is not None
-    from game_chess.module import load_model
+    from module import load_model
+
     model = load_model(
         n_res_blocks=args.n_res_blocks,
         checkpoint=args.checkpoint,
@@ -45,7 +46,9 @@ def main():
 
     stamm, _ = os.path.splitext(args.checkpoint)
     func = routing[(args.mode, args.format)]()
-    func(model,inp_shape=inp_shape, device=args.device, output=f"{stamm}.{args.format}")
+    func(
+        model, inp_shape=inp_shape, device=args.device, output=f"{stamm}.{args.format}"
+    )
 
 
 if __name__ == "__main__":

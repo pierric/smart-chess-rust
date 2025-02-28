@@ -70,7 +70,7 @@ class ChessDataset(Dataset):
             )
             for step in trace_steps
         ]
-        self.steps = libsmartchess.encode_steps(steps, apply_mirror)
+        self.steps = libsmartchess.chess_encode_steps(steps, apply_mirror)
 
     def __len__(self):
         return len(self.steps)
