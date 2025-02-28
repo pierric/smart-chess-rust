@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
 use std::collections::{HashMap, HashSet};
 use std::cell::{RefCell, RefMut};
+use std::sync::Arc;
 
 pub mod chess;
 pub mod game;
@@ -132,7 +133,7 @@ struct ChessEngineState {
 unsafe impl Send for ChessEngineState {}
 
 #[pyfunction]
-fn chess_play_new(checkpoint: &str, device: &str) -> PyResult<PyObject> {
+fn chess_play_new(checkpoint: &str, device: &str, initial_moves: Vec<chess::Move>) -> PyResult<PyObject> {
     let device = match device {
         "cpu" => tch::Device::Cpu,
         "cuda" => tch::Device::Cuda(0),
@@ -145,8 +146,9 @@ fn chess_play_new(checkpoint: &str, device: &str) -> PyResult<PyObject> {
         device: device,
     };
 
-    let board = chess::BoardState::new();
-    let (cursor, root) = mcts::Cursor::new(mcts::Node {
+    let mut board = chess::BoardState::new();
+    let mut turn = chess::Color::White;
+    let (mut cursor, root) = mcts::Cursor::new(mcts::Node {
         step: chess::Step(None::<chess::Move>, chess::Color::White),
         depth: 0,
         q_value: 0.,
@@ -154,6 +156,24 @@ fn chess_play_new(checkpoint: &str, device: &str) -> PyResult<PyObject> {
         parent: None,
         children: Vec::new(),
     });
+
+    for mov in initial_moves {
+        board.next(&mov);
+        let child = {
+            Arc::new(RefCell::new(mcts::Node {
+                step: chess::Step(Some(mov), !turn),
+                depth: cursor.current().depth + 1,
+                q_value: 0.,
+                num_act: 0,
+                parent: Some(cursor.as_weak()),
+                children: Vec::new(),
+            }))
+        };
+        cursor.current_mut().children = vec![child];
+        cursor.navigate_down(0);
+        turn = !turn;
+    }
+
     let state = RefCell::new(ChessEngineState {
         chess: chess,
         board: board,
