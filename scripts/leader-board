@@ -20,12 +20,12 @@ export -f task
 export B="${B:-runs/017/tb_logs/chess/version_13/step:469-3.548-0.326.pt2}"
 export W="${W:-tb_logs/chess/version_3/last.pt2}"
 
-ROLLOUT=${ROLLOUT:-20}
-TEMPERATURE=${TEMPERATURE:-0}
-CPUCT=${CPUCT:-2.5}
-GAME=${GAME:-play}
-DEVICE=${DEVICE:-cuda}
-P=${P:-1}
+export ROLLOUT=${ROLLOUT:-20}
+export TEMPERATURE=${TEMPERATURE:-0}
+export CPUCT=${CPUCT:-2.5}
+export GAME=${GAME:-play}
+export DEVICE=${DEVICE:-cuda}
+export P=${P:-1}
 
 mkdir -p "$PWD/replay"
 rm -f $PWD/replay/*.json

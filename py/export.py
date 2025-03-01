@@ -1,5 +1,6 @@
 import torch
 
+
 def export_ptq(model, *, output, calib):
     import pytorch_quantization
     import pytorch_quantization.quant_modules
@@ -89,7 +90,7 @@ def export_pt_f32(model, *, inp_shape, device, output):
 
 def export_pt_bf16(model, *, inp_shape, device, output):
     # assuming the model was trained with AMP
- 
+
     # model_jit = torch.jit.script(model)
     # model_jit = torch.jit.optimize_for_inference(model_jit)
 
@@ -111,20 +112,13 @@ def export_pt2_bf16(model, *, inp_shape, device, output):
     torch.set_float32_matmul_precision("high")
     # assuming the model was trained with AMP
 
-    x = torch.randn(2, *inp_shape, dtype=torch.bfloat16).to(device=device)
+    # fix the batch dim to be 1. There is some wierd restriction
+    # with torch.export.Dim, the batch dim can be anything other than 1
+    x = torch.randn(1, *inp_shape, dtype=torch.bfloat16).to(device=device)
 
     with torch.no_grad():
-        # cache_enabled is critical to "trace" to the model
-        # "script" works fine only for the non-amp model
         with torch.autocast(
             device_type=device, dtype=torch.bfloat16, cache_enabled=False
         ):
-            # model_jit = torch.jit.trace(model, [x])
-            # model_jit = torch.jit.optimize_for_inference(model_jit)
-            # torch.jit.save(model_jit, output)
-
-            batch_dim = torch.export.Dim("batch", min=1, max=1024)
-            ep = torch.export.export(
-                model, (x,), dynamic_shapes={"inp": {0: batch_dim}}
-            )
+            ep = torch.export.export(model, (x,))
             torch._inductor.aoti_compile_and_package(ep, package_path=output)
