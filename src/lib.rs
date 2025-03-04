@@ -120,7 +120,7 @@ fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyOb
 
 #[allow(dead_code)]
 struct ChessEngineState {
-    chess: chess::ChessTS,
+    chess: chess::ChessEP,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
@@ -141,8 +141,12 @@ fn chess_play_new(checkpoint: &str, device: &str, initial_moves: Vec<chess::Move
         _ => todo!("Unsupported device name"),
     };
 
-    let chess = chess::ChessTS {
-        model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
+    //let chess = chess::ChessTS {
+    //    model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
+    //    device: device,
+    //};
+    let chess = chess::ChessEP {
+        model: aotinductor::ModelPackage::new(checkpoint).unwrap(),
         device: device,
     };
 

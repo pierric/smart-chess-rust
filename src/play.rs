@@ -53,6 +53,9 @@ struct Args {
     #[arg(long, default_value_t = 0.0)]
     temperature: f32,
 
+    #[arg(long, default_value_t = 0)]
+    temperature_switch: u32,
+
     #[arg(long, default_value_t = 0.0)]
     cpuct: f32,
 
@@ -127,11 +130,12 @@ struct NNPlayer<G: game::Game<chess::BoardState>> {
     n_rollout: i32,
     cpuct: f32,
     temperature: f32,
+    temperature_switch: u32,
     game: G,
 }
 
 impl NNPlayer<ChessTS> {
-    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
+    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32, temperature_switch: u32) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
@@ -146,15 +150,16 @@ impl NNPlayer<ChessTS> {
 
         NNPlayer {
             game: chess,
-            n_rollout: n_rollout,
-            cpuct: cpuct,
-            temperature: temperature,
+            n_rollout,
+            cpuct,
+            temperature,
+            temperature_switch,
         }
     }
 }
 
 impl NNPlayer<ChessEP> {
-    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32) -> Self {
+    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32, temperature_switch: u32) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
@@ -171,6 +176,7 @@ impl NNPlayer<ChessEP> {
             n_rollout: n_rollout,
             cpuct: cpuct,
             temperature: temperature,
+            temperature_switch,
         }
     }
 
@@ -197,7 +203,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             return None;
         }
 
-        let temperature = if cursor.current().depth < 30 {1.0} else {self.temperature};
+        let temperature = if cursor.current().depth < self.temperature_switch {1.0} else {self.temperature};
 
         let choice: usize = if temperature == 0.0 {
             let max = num_act_vec.iter().max().unwrap();
@@ -289,6 +295,7 @@ fn load_checkpoint<P: AsRef<Path>>(
     n_rollout: i32,
     cpuct: f32,
     temperature: f32,
+    temperature_switch: u32,
 ) -> Box<dyn Player> {
     let path = path.as_ref();
     match path.extension().and_then(std::ffi::OsStr::to_str) {
@@ -298,6 +305,7 @@ fn load_checkpoint<P: AsRef<Path>>(
             n_rollout,
             cpuct,
             temperature,
+            temperature_switch,
         )) as Box<SomeNNPlayer>,
         Some("pt2") => Box::new(NNPlayer::<ChessEP>::load(
             device,
@@ -305,6 +313,7 @@ fn load_checkpoint<P: AsRef<Path>>(
             n_rollout,
             cpuct,
             temperature,
+            temperature_switch,
         )) as Box<SomeNNPlayer>,
         _ => panic!("--white-checkpoint should be a path to onnx or pt file."),
     }
@@ -345,6 +354,7 @@ fn main() {
         args.rollout,
         args.cpuct,
         args.temperature,
+        args.temperature_switch,
     );
 
     use std::borrow::Borrow;
@@ -368,6 +378,7 @@ fn main() {
                 args.rollout,
                 args.cpuct,
                 args.temperature,
+                args.temperature_switch,
             );
             println!("Players loaded.");
             play_loop::<SomeNNPlayer, SomeNNPlayer>(

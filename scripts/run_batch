@@ -4,12 +4,13 @@ set -eux
 ARGS=$@
 N=${N:-100}
 P=${P:-1}
+export PREFIX="${PREFIX:-.}"
 
 task() {
     JOB_ID=$1
     shift
     echo "Run index" ${JOB_ID} .. $PWD .. $@
-    cargo r --release --bin smartchess -- -t "trace${JOB_ID}.json" $@ > "/tmp/chess_log_${JOB_ID}"
+    cargo r --release --bin smartchess -- -t "${PREFIX}/trace${JOB_ID}.json" $@ > "/tmp/chess_log_${JOB_ID}"
 }
 
 export -f task

@@ -8,7 +8,7 @@ use std::iter::Sum;
 use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
 use std::cell::{RefCell, Ref, RefMut};
-use std::fmt::Display;
+use std::fmt::{Display, Debug};
 
 pub type ArcRefNode<T> = Arc<RefCell<Node<T>>>;
 type WeakRefNode<T> = Weak<RefCell<Node<T>>>;
@@ -232,7 +232,7 @@ pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i3
 where
     G: Game<S> + ?Sized,
     S: State,
-    S::Step: Display,
+    S::Step: Display + Debug,
 {
     let default_cpuct: f32 = 1.2;
     let cpuct = cpuct.unwrap_or(default_cpuct);
