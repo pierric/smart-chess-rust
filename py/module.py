@@ -26,22 +26,20 @@ class ResBlock(torch.nn.Module):
 
 
 class ChessModule(torch.nn.Module):
-
     def __init__(self, n_res_blocks=19):
         super().__init__()
 
-        # 8 boards (14 channels each) + meta (7 channels)
+        # 8 boards (14 channels each)
+        # meta (7 channels)
         self.conv_block = torch.nn.Sequential(
             torch.nn.Conv2d(
-                14 * 8 + 7, 256, kernel_size=5, stride=1, padding=2, bias=False
+                14 * 8, 256, kernel_size=5, stride=1, padding=2, bias=False
             ),
             torch.nn.BatchNorm2d(256),
             torch.nn.ReLU(inplace=False),
         )
 
-        self.res_blocks = torch.nn.ModuleList(
-            [ResBlock() for _ in range(n_res_blocks)]
-        )
+        self.res_blocks = torch.nn.ModuleList([ResBlock() for _ in range(n_res_blocks)])
 
         self.value_head = torch.nn.Sequential(
             torch.nn.Conv2d(256, 16, kernel_size=1, bias=False),
@@ -72,7 +70,7 @@ class ChessModule(torch.nn.Module):
         )
 
     def forward(self, inp):
-        x = self.conv_block(inp)
+        x = self.conv_block(inp[:, :112, ...])
 
         for block in self.res_blocks:
             x = block(x)
@@ -81,6 +79,8 @@ class ChessModule(torch.nn.Module):
         v1 = torch.log_softmax(v1, dim=1)
 
         v2 = self.value_head(x)
+        turn = inp[:, 112, 0, 0].unsqueeze(-1)
+        v2 = v2 * (turn * 2 - 1)
         return v1, v2
 
 
