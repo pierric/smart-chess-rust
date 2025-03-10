@@ -243,8 +243,8 @@ fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, t
 
     let step = cursor.current().step;
     let mov = step.0.unwrap();
-    let turn = !step.1;
-    println!("{}: {}", turn, mov);
+    // let turn = !step.1;
+    // println!("{}: {}", turn, mov);
     trace.push(Some(mov), q_value, all_children);
     state.next(&mov);
 }
