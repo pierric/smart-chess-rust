@@ -83,6 +83,10 @@ def split(args):
 
     group_keys = groups.groups.keys()
 
+    print("Counting")
+    print(groups.count().to_string(header=False))
+    print("--------")
+
     if "White" in group_keys and "Black" in group_keys:
         nmax = groups.count().loc[["White", "Black"]].max().item()
 

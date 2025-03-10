@@ -105,6 +105,7 @@ class ChessLightningModule(L.LightningModule):
                 "loss1": loss1,
                 "loss2": loss2,
                 "loss": loss1 + self.config["loss_weight"] * loss2,
+                "w2": torch.nn.utils.get_total_norm(self.parameters()),
             }
         )
         return loss1 + self.config["loss_weight"] * loss2
@@ -137,7 +138,10 @@ class ChessLightningModule(L.LightningModule):
         # )
 
         optimizer = torch.optim.SGD(
-            self.parameters(), lr=self.config["lr"], momentum=0.9, weight_decay=3e-5
+            self.parameters(),
+            lr=self.config["lr"],
+            momentum=0.9,
+            weight_decay=self.config["weight_decay"],
         )
 
         if self.config["lr_scheduler"] == "constant":
@@ -235,6 +239,9 @@ def main():
     )
     parser.add_argument("--freeze-backbone", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
+    parser.add_argument("--weight-decay", type=float, default=1e-3)
+    parser.add_argument("--val-check-interval", type=int, default=0)
+    parser.add_argument("--gradient-clip-val", type=float, default=0)
     args = parser.parse_args()
 
     compile_model = not args.no_compile
@@ -320,9 +327,19 @@ def main():
         else TransferConf.parse(args.model_conf) or int(args.model_conf),
         freeze_backbone=args.freeze_backbone,
         lr_scheduler=args.lr_scheduler,
+        weight_decay=args.weight_decay,
+        gradient_clip_val=args.gradient_clip_val,
     )
 
     module = ChessLightningModule(config)
+
+    extra_params = {}
+    if args.val_check_interval > 0:
+        extra_params["val_check_interval"] = args.val_check_interval
+
+    if args.gradient_clip_val > 0:
+        extra_params["gradient_clip_val"] = args.gradient_clip_val
+
     trainer = L.Trainer(
         enable_checkpointing=False,
         logger=logger,
@@ -330,7 +347,8 @@ def main():
         max_epochs=config["epochs"],
         log_every_n_steps=10,
         # precision="bf16-mixed",
-        val_check_interval=20,
+        # val_check_interval=20,
+        **extra_params,
     )
     trainer.fit(
         model=module,
