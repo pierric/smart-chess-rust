@@ -23,6 +23,7 @@ pytorch-triton-rocm = { version = "3.2.0", source = "pytorch-rocm" }
 pandas = "^2.2.3"
 ipython = "^8.31.0"
 jupyterlab = "^4.3.4"
+jina = "^3.33.1"
 
 [build-system]
 requires = ["poetry-core"]
