@@ -58,9 +58,9 @@ def mix(args):
     older_runs = df[df.run_id < latest_run_id]
     latest_runs = df[df.run_id == latest_run_id]
 
-    assert len(older_runs) >= len(
+    assert len(older_runs) >= args.ratio * len(
         latest_runs
-    ), "to sample the runs, there need more older runs."
+    ), f"to sample the runs, there need more older runs. num old: {len(older_runs)}"
 
     selection = pd.concat(
         (older_runs.sample(n=int(args.ratio * len(latest_runs))), latest_runs)

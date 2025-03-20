@@ -28,15 +28,16 @@ export CPUCT=${CPUCT:-2.5}
 export GAME=${GAME:-play}
 export DEVICE=${DEVICE:-cuda}
 export P=${P:-1}
+export PREFIX=${PREFIX:-replay}
 
-mkdir -p "$PWD/replay"
-rm -f $PWD/replay/*.json
-echo "Results are saved in $PWD/replay"
-parallel --linebuffer -j${P} task {#} "replay/w_" --rollout=$ROLLOUT --temperature $TEMPERATURE --temperature-switch $TEMPERATURE_SWITCH --cpuct $CPUCT ::: $(seq 1 100)
+mkdir -p "$PREFIX"
+rm -f $PREFIX/*.json
+echo "Results are saved in $PREFIX"
+parallel --linebuffer -j${P} task {#} "$PREFIX/w_" --rollout=$ROLLOUT --temperature $TEMPERATURE --temperature-switch $TEMPERATURE_SWITCH --cpuct $CPUCT ::: $(seq 1 100)
 
 TMP=${W}
 export W=${B}
 export B=${TMP}
 
 echo "Swapping the players"
-parallel --linebuffer -j${P} task {#} "replay/b_" --rollout=$ROLLOUT --temperature $TEMPERATURE --temperature-switch $TEMPERATURE_SWITCH --cpuct $CPUCT ::: $(seq 1 100)
+parallel --linebuffer -j${P} task {#} "$PREFIX/b_" --rollout=$ROLLOUT --temperature $TEMPERATURE --temperature-switch $TEMPERATURE_SWITCH --cpuct $CPUCT ::: $(seq 1 100)

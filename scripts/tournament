@@ -1,27 +1,27 @@
 #! /bin/bash
 
-export ROOT=`cargo metadata --format-version 1 | jq -r ".workspace_root"`
-export PYTHONPATH=$ROOT/py
-
-
 task() {
-    JOB_ID=$1
-    CHECKPOINT=$2
-    shift 2
-    echo "Run index ${JOB_ID} using checkpoint ${CHECKPOINT} ARGS $@"
+  JOB_ID=$1
+  PREFIX=$2
+  shift 2
+  echo "Run index ${JOB_ID} using checkpoint ${W} ARGS $@"
 
-    cargo r --bin play -- \
-        --checkpoint runs/${CHECKPOINT}/tb_logs/chess/version_0/last.ckpt\
-        -o ${CHECKPOINT}/${JOB_ID}.json\
-        $@
+  cargo r --bin play -- \
+    --white-device ${DEVICE} --white-checkpoint ${W} \
+    --black-type stockfish \
+    -o "${PREFIX}${JOB_ID}.json" \
+    $@
 }
 
 export -f task
 
-LAST=$(ls runs/ | sort -V -r | head -n 1)
-mkdir -p "replay/$LAST"
-parallel -j2 task {#} ${LAST} -d cuda --rollout=300 --temperature 0 --cpuct 0.5 ::: $(seq 1 10)
+export W="${W:-tb_logs/chess/version_0/last.pt2}"
+export ROLLOUT=${ROLLOUT:-20}
+export TEMPERATURE=${TEMPERATURE:-0}
+export TEMPERATURE_SWITCH=${TEMPERATURE_SWITCH:-0}
+export CPUCT=${CPUCT:-2.5}
+export DEVICE=${DEVICE:-cuda}
 
-pushd replay/$LAST
-$ROOT/scripts/show-result
-popd
+rm -f replay/*.json
+parallel --linebuffer -j${P} task {#} "replay/" --rollout=$ROLLOUT --temperature $TEMPERATURE --temperature-switch $TEMPERATURE_SWITCH --cpuct $CPUCT ::: $(seq 1 50)
+DEST_PATH=replay/ ../scripts/show-result
