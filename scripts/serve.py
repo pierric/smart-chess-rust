@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 
-from jina import Executor, requests, dynamic_batching, Deployment
+from jina import Executor, requests, dynamic_batching, Deployment, Flow
 from docarray import BaseDoc, DocList
 from docarray.typing import NdArray
 import torch
@@ -10,7 +10,8 @@ from module import load_model
 
 
 class ChessInput(BaseDoc):
-    boards: NdArray[119, 8, 8]
+    boards: NdArray[8, 8, 112]
+    meta: NdArray[8, 8, 7]
 
 
 class ChessOutput(BaseDoc):
@@ -38,8 +39,16 @@ class ChessExecutor(Executor):
             with torch.autocast(
                 device_type=self.device, dtype=torch.bfloat16, cache_enabled=False
             ):
-                inp = np.stack([doc.boards for doc in docs])
-                inp = torch.from_numpy(inp).to(device=self.device)
+                print("received", len(docs), "docs")
+                docs = [
+                    np.concatenate(
+                        (doc.boards.astype(np.float32), doc.meta.astype(np.float32)),
+                        axis=2,
+                    )
+                    for doc in docs
+                ]
+                inp = np.stack(docs)
+                inp = torch.from_numpy(inp.transpose(0, 3, 1, 2)).to(device=self.device)
                 action, score = self.model(inp)
 
         action = list(action.cpu().numpy())
@@ -58,16 +67,31 @@ def main():
     parser.add_argument("-p", "--port", default=8900)
     args = parser.parse_args()
 
-    with Deployment(
-        uses=ChessExecutor,
-        uses_with={
-            "n_res_blocks": args.n_res_blocks,
-            "device": args.device,
-            "checkpoint": args.checkpoint,
-        },
-        port=args.port,
-    ) as dep:
-        dep.block()
+    # with Deployment(
+    #    uses=ChessExecutor,
+    #    uses_with={
+    #        "n_res_blocks": args.n_res_blocks,
+    #        "device": args.device,
+    #        "checkpoint": args.checkpoint,
+    #    },
+    #    port=args.port,
+    # ) as dep:
+    #    dep.block()
+    f = (
+        Flow()
+        .config_gateway(protocol=["grpc"], port=args.port)
+        .add(
+            name="model",
+            uses=ChessExecutor,
+            uses_with={
+                "n_res_blocks": args.n_res_blocks,
+                "device": args.device,
+                "checkpoint": args.checkpoint,
+            },
+        )
+    )
+    with f:
+        f.block()
 
 
 if __name__ == "__main__":

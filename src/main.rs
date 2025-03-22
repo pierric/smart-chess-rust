@@ -8,6 +8,16 @@ mod mcts;
 mod queenmoves;
 mod trace;
 mod underpromotions;
+mod backends;
+
+
+#[allow(non_camel_case_types)]
+mod jina {
+    tonic::include_proto!("jina");
+}
+mod docarray {
+    tonic::include_proto!("docarray");
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -27,8 +37,11 @@ struct Args {
     #[arg(short, long, default_value_t = String::from("trace.json"))]
     trace_file: String,
 
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = String::from("__no_checkpoint__"))]
     checkpoint: String,
+
+    #[arg(long, default_value_t = String::from("__no_endpoint__"))]
+    endpoint: String,
 
     #[arg(long, default_value_t = 0.0)]
     temperature: f32,
@@ -61,16 +74,21 @@ fn main() {
         _ => todo!("Unsupported device name"),
     };
 
-    let chess: Box<dyn game::Game<chess::BoardState>> = match Path::new(&args.checkpoint).extension().and_then(|s| s.to_str()) {
-        Some("pt") => Box::new(chess::ChessTS {
-            model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
-            device: device,
-        }),
-        Some("pt2") => Box::new(chess::ChessEP {
-            model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
-            device: device,
-        }),
-        _ => panic!("unsupported checkpoint type.")
+    let chess: Box<dyn game::Game<chess::BoardState>> = if args.checkpoint != "__no_checkpoint__" {
+        match Path::new(&args.checkpoint).extension().and_then(|s| s.to_str()) {
+            Some("pt") => Box::new(chess::ChessTS {
+                model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
+                device: device,
+            }),
+            Some("pt2") => Box::new(chess::ChessEP {
+                model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
+                device: device,
+            }),
+            _ => panic!("unsupported checkpoint type.")
+        }
+    }
+    else {
+        Box::new(backends::grpc::ChessService::new(&args.endpoint))
     };
 
 //use pyo3::prelude::*;

@@ -21,4 +21,7 @@ fn main() {
     }
 
     println!("cargo:rustc-link-arg=-ltorch");
+
+    tonic_build::compile_protos("proto/jina.proto").unwrap();
+    tonic_build::compile_protos("proto/docarray.proto").unwrap();
 }

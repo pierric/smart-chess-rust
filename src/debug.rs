@@ -41,7 +41,7 @@ struct Args {
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
-fn debug_step(chess: chess::Chess, filename: &str, target_step: usize) {
+fn debug_step(chess: chess::ChessPy, filename: &str, target_step: usize) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
     let trace: serde_json::Map<String, serde_json::Value> =
@@ -116,7 +116,7 @@ fn debug_step(chess: chess::Chess, filename: &str, target_step: usize) {
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
-fn debug_trace(chess: chess::Chess, filename: &str, target_step: usize, args: &Args) {
+fn debug_trace(chess: chess::ChessPy, filename: &str, target_step: usize, args: &Args) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
     let trace: serde_json::Map<String, serde_json::Value> =
@@ -331,7 +331,7 @@ fn main() {
 
     match r {
         Ok(nn) => {
-            let chess = chess::Chess {
+            let chess = chess::ChessPy {
                 model: nn,
                 device: String::from("cuda"),
             };

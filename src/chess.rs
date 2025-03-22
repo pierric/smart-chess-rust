@@ -827,7 +827,7 @@ impl BoardHistory {
     }
 }
 
-fn _encode(node: &ArcRefNode<Step>, state: &BoardState) -> (Array3<i8>, Array3<i32>) {
+pub fn _encode(node: &ArcRefNode<Step>, state: &BoardState) -> (Array3<i8>, Array3<i32>) {
     let current_board = state.to_board();
     let mut history = BoardHistory::new(LOOKBACK);
     let mut move_stack = state.move_stack();
@@ -859,7 +859,7 @@ fn _encode(node: &ArcRefNode<Step>, state: &BoardState) -> (Array3<i8>, Array3<i
 }
 
 fn _chess_predict(
-    chess: &Chess,
+    chess: &ChessPy,
     node: &ArcRefNode<Step>,
     state: &BoardState,
     argmax: bool,
@@ -895,7 +895,7 @@ fn _chess_predict(
     return (next_steps, moves_distr, score);
 }
 
-pub struct Chess {
+pub struct ChessPy {
     pub model: Py<PyAny>,
     pub device: String,
 }
@@ -981,7 +981,7 @@ ret_score = ret_score.detach().cpu().item()
     }).unwrap()
 }
 
-impl Game<BoardState> for Chess {
+impl Game<BoardState> for ChessPy {
     fn predict(
         &self,
         node: &ArcRefNode<Step>,
