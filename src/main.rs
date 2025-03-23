@@ -76,11 +76,11 @@ fn main() {
 
     let chess: Box<dyn game::Game<chess::BoardState>> = if args.checkpoint != "__no_checkpoint__" {
         match Path::new(&args.checkpoint).extension().and_then(|s| s.to_str()) {
-            Some("pt") => Box::new(chess::ChessTS {
+            Some("pt") => Box::new(backends::torch::ChessTS {
                 model: tch::CModule::load_on_device(args.checkpoint, device).unwrap(),
                 device: device,
             }),
-            Some("pt2") => Box::new(chess::ChessEP {
+            Some("pt2") => Box::new(backends::torch::ChessEP {
                 model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
                 device: device,
             }),

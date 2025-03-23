@@ -12,6 +12,15 @@ pub mod knightmoves;
 pub mod mcts;
 pub mod queenmoves;
 pub mod underpromotions;
+pub mod backends;
+
+#[allow(non_camel_case_types)]
+mod jina {
+    tonic::include_proto!("jina");
+}
+mod docarray {
+    tonic::include_proto!("docarray");
+}
 
 #[pyfunction]
 fn chess_encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
@@ -120,7 +129,7 @@ fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyOb
 
 #[allow(dead_code)]
 struct ChessEngineState {
-    chess: chess::ChessEP,
+    chess: backends::torch::ChessEP,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
@@ -145,7 +154,7 @@ fn chess_play_new(checkpoint: &str, device: &str, initial_moves: Vec<chess::Move
     //    model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
     //    device: device,
     //};
-    let chess = chess::ChessEP {
+    let chess = backends::torch::ChessEP {
         model: aotinductor::ModelPackage::new(checkpoint).unwrap(),
         device: device,
     };
@@ -260,7 +269,7 @@ fn chess_play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyO
     Python::with_gil(|py| {
         let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
 
-        let (steps, prior, outcome) = chess::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
+        let (steps, prior, outcome) = backends::torch::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
         let steps = steps.into_pyobject(py)?.unbind().into_any();
         let prior = prior.into_pyobject(py)?.unbind().into_any();
         let outcome = outcome.into_pyobject(py)?.unbind().into_any();

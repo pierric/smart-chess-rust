@@ -17,8 +17,17 @@ mod mcts;
 mod queenmoves;
 mod trace;
 mod underpromotions;
+mod backends;
 
-use chess::{ChessTS, ChessEP};
+use backends::torch::{ChessTS, ChessEP};
+
+#[allow(non_camel_case_types)]
+mod jina {
+    tonic::include_proto!("jina");
+}
+mod docarray {
+    tonic::include_proto!("docarray");
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
 enum Opponent {

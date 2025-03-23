@@ -17,6 +17,15 @@ mod mcts;
 mod queenmoves;
 mod trace;
 mod underpromotions;
+mod backends;
+
+#[allow(non_camel_case_types)]
+mod jina {
+    tonic::include_proto!("jina");
+}
+mod docarray {
+    tonic::include_proto!("docarray");
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -41,7 +50,7 @@ struct Args {
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
-fn debug_step(chess: chess::ChessPy, filename: &str, target_step: usize) {
+fn debug_step(chess: backends::py::ChessPy, filename: &str, target_step: usize) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
     let trace: serde_json::Map<String, serde_json::Value> =
@@ -116,7 +125,7 @@ fn debug_step(chess: chess::ChessPy, filename: &str, target_step: usize) {
 }
 
 #[allow(unused_variables, dead_code, unused_mut)]
-fn debug_trace(chess: chess::ChessPy, filename: &str, target_step: usize, args: &Args) {
+fn debug_trace(chess: backends::py::ChessPy, filename: &str, target_step: usize, args: &Args) {
     let mut file = File::open(filename).unwrap();
     let reader = BufReader::new(file);
     let trace: serde_json::Map<String, serde_json::Value> =
@@ -331,7 +340,7 @@ fn main() {
 
     match r {
         Ok(nn) => {
-            let chess = chess::ChessPy {
+            let chess = backends::py::ChessPy {
                 model: nn,
                 device: String::from("cuda"),
             };
