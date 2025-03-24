@@ -29,6 +29,7 @@ def _get_outcome(res):
 
 
 def _prepare(boards, meta, dist, outcome):
+    meta = meta[None, :].repeat(64).reshape((8, 8, 7))
     inp = np.concatenate((boards.astype(np.float32), meta.astype(np.float32)), axis=-1)
     inp = inp.transpose((2, 0, 1))
 

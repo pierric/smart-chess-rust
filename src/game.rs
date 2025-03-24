@@ -1,5 +1,5 @@
 use crate::mcts::ArcRefNode;
-use ndarray::Array3;
+use ndarray::{Array1, Array3};
 use tch::Tensor;
 
 pub trait Game<S>
@@ -53,20 +53,21 @@ pub fn post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32> {
     }
 }
 
-pub fn prepare_tensors(boards: Array3<i8>, meta: Array3<i32>, device: tch::Device) -> Tensor {
+pub fn prepare_tensors(boards: Array3<i8>, meta: Array1<i32>, device: tch::Device) -> Tensor {
     // copy to device in sync mode
     // otherwise may cause corruption in data (mps)
     let encoded_boards =
         Tensor::try_from(boards)
             .unwrap()
-            .to_device_(device, tch::Kind::BFloat16, false, false);
+            .to_device_(device, tch::Kind::BFloat16, false, false)
+            .permute([2, 0, 1]);
     let encoded_meta =
         Tensor::try_from(meta)
             .unwrap()
-            .to_device_(device, tch::Kind::BFloat16, false, false);
+            .to_device_(device, tch::Kind::BFloat16, false, false)
+            .repeat_interleave_self_int(64, None, None).reshape([7, 8, 8]);
 
-    Tensor::cat(&[encoded_boards, encoded_meta], 2)
-        .permute([2, 0, 1])
+    Tensor::cat(&[encoded_boards, encoded_meta], 0)
         .contiguous() // aot model expects contiguous tensor
         .unsqueeze(0)
 }

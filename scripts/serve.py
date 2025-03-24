@@ -11,7 +11,7 @@ from module import load_model
 
 class ChessInput(BaseDoc):
     boards: NdArray[8, 8, 112]
-    meta: NdArray[8, 8, 7]
+    meta: NdArray[7]
 
 
 class ChessOutput(BaseDoc):
@@ -33,22 +33,21 @@ class ChessExecutor(Executor):
         print("model loaded.")
 
     @requests(on="/infer")
-    @dynamic_batching(preferred_batch_size=5, timeout=100)
+    @dynamic_batching(preferred_batch_size=12, timeout=10)
     def infer(self, docs: DocList[ChessInput], **kwargs) -> DocList[ChessOutput]:
+        tensors = []
+
+        for doc in in docs:
+            b = torch.from_numpy(doc.boards.astype(np.float32)).transpose(2, 0, 1)
+            m = torch.from_numpy(doc.meta.astype(np.float32)).repeat_interleaved(64).reshape(7, 8, 8)
+            tensors.append(torch.cat((b, m)))
+
+        inp = torch.stack(tensors).to(device=self.device)
+
         with torch.inference_mode():
             with torch.autocast(
                 device_type=self.device, dtype=torch.bfloat16, cache_enabled=False
             ):
-                print("received", len(docs), "docs")
-                docs = [
-                    np.concatenate(
-                        (doc.boards.astype(np.float32), doc.meta.astype(np.float32)),
-                        axis=2,
-                    )
-                    for doc in docs
-                ]
-                inp = np.stack(docs)
-                inp = torch.from_numpy(inp.transpose(0, 3, 1, 2)).to(device=self.device)
                 action, score = self.model(inp)
 
         action = list(action.cpu().numpy())

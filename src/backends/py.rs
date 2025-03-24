@@ -2,7 +2,7 @@ use numpy::{PyArray, PyArrayMethods};
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
 use pyo3::types::*;
-use ndarray::Array3;
+use ndarray::{Array1, Array3};
 use c_str_macro::c_str;
 
 use crate::chess::{Color, Move, Step, BoardState, _encode};
@@ -62,15 +62,16 @@ fn call_py_model(
     model: &Py<PyAny>,
     device: &str,
     boards: Array3<i8>,
-    meta: Array3<i32>,
+    meta: Array1<i32>,
     turn: Color,
     steps: &Vec<Move>,
 ) -> (Vec<f32>, f32) {
     Python::with_gil(|py| {
         let encoded_boards = PyArray3::from_array(py, &boards);
-        let encoded_meta = PyArray3::from_array(py, &meta);
+        let encoded_meta = PyArray1::from_array(py, &meta);
 
         let code = c_str!(r#"
+encoded_meta = encode_meta[None,:].repeat(64).reshape((8, 8, 7))
 inp = np.concatenate((encoded_boards, encoded_meta), axis=-1).astype(np.float32)
 inp = inp.transpose((2, 0, 1))
 inp = torch.from_numpy(inp[np.newaxis, :])

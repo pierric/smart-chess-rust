@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Not;
 use std::cmp;
 use cached::{SizedCache, Cached};
-use ndarray::{s, Array3, Ix3};
+use ndarray::{s, Array1, Array3, Ix3};
 use once_cell::sync::Lazy;
 use pyo3::conversion::IntoPyObject;
 use pyo3::intern;
@@ -639,22 +639,16 @@ impl Board {
         return array;
     }
 
-    pub fn encode_meta(&self) -> Array3<i32> {
-        let mut meta = Array3::<i32>::zeros((8, 8, 7));
-        meta.slice_mut(s![.., .., 0]).fill(self.turn as i32);
-        meta.slice_mut(s![.., .., 1])
-            .fill(self.fullmove_number as i32);
-        meta.slice_mut(s![.., .., 2])
-            .fill(self.has_kingside_castling_rights.0 as i32);
-        meta.slice_mut(s![.., .., 3])
-            .fill(self.has_queenside_castling_rights.0 as i32);
-        meta.slice_mut(s![.., .., 4])
-            .fill(self.has_kingside_castling_rights.1 as i32);
-        meta.slice_mut(s![.., .., 5])
-            .fill(self.has_queenside_castling_rights.1 as i32);
-        meta.slice_mut(s![.., .., 6])
-            .fill(self.halfmove_clock as i32);
-        return meta;
+    pub fn encode_meta(&self) -> Array1<i32> {
+        Array1::from_vec(vec![
+            self.turn as i32,
+            self.fullmove_number as i32,
+            self.has_kingside_castling_rights.0 as i32,
+            self.has_queenside_castling_rights.0 as i32,
+            self.has_kingside_castling_rights.1 as i32,
+            self.has_queenside_castling_rights.1 as i32,
+            self.halfmove_clock as i32,
+        ])
     }
 }
 
@@ -821,7 +815,7 @@ impl BoardHistory {
     }
 }
 
-pub fn _encode(node: &ArcRefNode<Step>, state: &BoardState) -> (Array3<i8>, Array3<i32>) {
+pub fn _encode(node: &ArcRefNode<Step>, state: &BoardState) -> (Array3<i8>, Array1<i32>) {
     let current_board = state.to_board();
     let mut history = BoardHistory::new(LOOKBACK);
     let mut move_stack = state.move_stack();
