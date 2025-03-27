@@ -6,10 +6,10 @@ edition = "2021"
 [lib]
 name = "smartchess"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
 
 [[bin]]
-name = "smartchess"
+name = "selfplay"
 path = "src/main.rs"
 
 [[bin]]
@@ -24,6 +24,9 @@ path = "src/debug.rs"
 cxx-build = "1.0"
 pyo3-build-config = "0.23.4"
 tonic-build = "0.12.3"
+
+[dev-dependencies]
+criterion = "0.5"
 
 [dependencies]
 cxx = "1.0"
@@ -54,6 +57,11 @@ prost = "=0.13.2"
 prost-types = "=0.13.2"
 tokio = { version = "1.44.1", features = ["rt-multi-thread"] }
 bytemuck = "1.22.0"
+chess = "3.2.0"
 
 [profile.release]
 debug = true
+
+[[bench]]
+name = "chess_bench"
+harness = false

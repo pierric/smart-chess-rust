@@ -667,6 +667,19 @@ impl BoardState {
     }
 
     #[allow(dead_code)]
+    pub fn from_fen(fen: &str) -> Option<Self> {
+        Python::with_gil(|py| {
+            CHESS_MODULE
+                .bind(py)
+                .getattr("Board")
+                .and_then(|cls| cls.call1((fen, )))
+                .and_then(|obj| obj.extract())
+                .ok()
+                .map(|o| Self { python_object: o})
+        })
+    }
+
+    #[allow(dead_code)]
     pub fn turn(&self) -> Color {
         Python::with_gil(|py| {
             self.python_object
