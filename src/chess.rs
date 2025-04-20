@@ -47,8 +47,8 @@ pub struct Square {
 pub enum PieceType {
     Pawn = 1,
     Knight,
-    BISHOP,
-    ROOK,
+    Bishop,
+    Rook,
     Queen,
     King,
 }
@@ -115,8 +115,8 @@ impl From<i32> for PieceType {
         match i {
             1 => PieceType::Pawn,
             2 => PieceType::Knight,
-            3 => PieceType::BISHOP,
-            4 => PieceType::ROOK,
+            3 => PieceType::Bishop,
+            4 => PieceType::Rook,
             5 => PieceType::Queen,
             6 => PieceType::King,
             _ => panic!("Invalid piece type"),
@@ -376,8 +376,8 @@ impl<'a> FromPyObject<'a> for Board {
         let last_move = if fullmove_number == 1 && turn == Color::White {
             None
         } else {
-            let mov = obj.call_method0(intern!(py, "peek")).unwrap().extract()?;
-            Some(mov)
+            let mov = obj.call_method0(intern!(py, "peek")).ok();
+            mov.and_then(|o| o.extract().ok())
         };
 
         return Ok(Board {
@@ -460,8 +460,8 @@ impl PieceType {
         match self {
             PieceType::Pawn => "p",
             PieceType::Knight => "n",
-            PieceType::BISHOP => "b",
-            PieceType::ROOK => "r",
+            PieceType::Bishop => "b",
+            PieceType::Rook => "r",
             PieceType::Queen => "q",
             PieceType::King => "k",
         }

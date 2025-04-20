@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 const _PROMOTIONS: [(Option<PieceType>, i32); 3] = [
     (Some(PieceType::Knight), 0),
-    (Some(PieceType::BISHOP), 1),
-    (Some(PieceType::ROOK), 2),
+    (Some(PieceType::Bishop), 1),
+    (Some(PieceType::Rook), 2),
 ];
 
 const _TYPE_OFFSET: i32 = 64;

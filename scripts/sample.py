@@ -38,6 +38,14 @@ def mix(args):
 
     for f in files:
         comps = f.split(os.sep)
+
+        index = 0
+        while index < len(comps) and (
+            comps[index] in [".", ".."] or comps[index].startswith("L")
+        ):
+            index += 1
+        comps = comps[index:]
+
         try:
             runs_idx = comps.index("runs")
         except ValueError:

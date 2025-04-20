@@ -133,16 +133,18 @@ class ChessLightningModule(L.LightningModule):
         self.trainer.strategy.barrier()
 
     def configure_optimizers(self):
-        # optimizer = torch.optim.AdamW(
-        #    self.parameters(), lr=self.config["lr"], weight_decay=1e-4
-        # )
-
-        optimizer = torch.optim.SGD(
+        optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.config["lr"],
-            momentum=0.9,
             weight_decay=self.config["weight_decay"],
         )
+
+        # optimizer = torch.optim.SGD(
+        #    self.parameters(),
+        #    lr=self.config["lr"],
+        #    momentum=0.9,
+        #    weight_decay=self.config["weight_decay"],
+        # )
 
         if self.config["lr_scheduler"] == "constant":
             return optimizer
