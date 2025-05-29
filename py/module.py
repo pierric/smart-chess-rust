@@ -25,6 +25,35 @@ class ResBlock(torch.nn.Module):
         return out
 
 
+class DropoutBlock(torch.nn.Module):
+    def __init__(self, din: int, dout: int, p: float):
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            # torch.nn.Linear(din, dout),
+            torch.nn.Conv2d(din, dout, kernel_size=1, bias=False, groups=din),
+            torch.nn.BatchNorm2d(dout),
+            torch.nn.Flatten(start_dim=1, end_dim=-1),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(p=p),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class TwoLinearLayer(torch.nn.Module):
+    def __init__(self, din: int, hidden: int, dout: int):
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(din, hidden),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden, dout),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
 class ChessModule(torch.nn.Module):
     def __init__(self, n_res_blocks=19, n_boards=8):
         super().__init__()
@@ -45,37 +74,10 @@ class ChessModule(torch.nn.Module):
 
         self.res_blocks = torch.nn.ModuleList([ResBlock() for _ in range(n_res_blocks)])
 
-        self.value_head_conv = torch.nn.Conv2d(256, 16, kernel_size=1, bias=False)
-        self.value_head_bn = torch.nn.BatchNorm2d(16)
-        # 7 floats of meta information are concatenated
-        self.value_head_linear1 = torch.nn.Linear(8 * 8 * 16 + 7, 256)
-        self.value_head_linear2 = torch.nn.Linear(256, 1)
-
-        self.policy_head_conv = torch.nn.Conv2d(256, 128, kernel_size=1, bias=False)
-        self.policy_head_bn = torch.nn.BatchNorm2d(128)
-        self.policy_head_linear = torch.nn.Linear(8 * 8 * 128 + 7, 8 * 8 * 73)
-
-    def value_head(self, x, meta):
-        x = self.value_head_conv(x)
-        x = self.value_head_bn(x)
-        x = torch.flatten(x, 1, -1)
-        x = torch.concatenate((x, meta), dim=1)
-        x = self.value_head_linear1(x)
-        x = torch.nn.functional.relu(x)
-        x = self.value_head_linear2(x)
-        x = torch.nn.functional.tanh(x)
-
-        turn = meta[:, 0].unsqueeze(-1)
-        return x * (turn * 2 - 1)
-
-    def policy_head(self, x, meta):
-        x = self.policy_head_conv(x)
-        x = self.policy_head_bn(x)
-        x = torch.flatten(x, 1, -1)
-        x = torch.concatenate((x, meta), dim=1)
-        x = torch.nn.functional.relu(x)
-        x = self.policy_head_linear(x)
-        return torch.log_softmax(x, dim=1)
+        mid = 512
+        self.dropout = DropoutBlock(256, mid, 0.1)
+        self.value_head = TwoLinearLayer(8 * 8 * mid + 7, 512, 1)
+        self.policy_head = TwoLinearLayer(8 * 8 * mid + 7, 2048, 8 * 8 * 73)
 
     def forward(self, inp):
         # inp shape bx119x8x8
@@ -89,22 +91,46 @@ class ChessModule(torch.nn.Module):
         for block in self.res_blocks:
             x = block(x)
 
-        v1 = self.policy_head(x, meta)
-        v2 = self.value_head(x, meta)
+        x = self.dropout(x)
+        x = torch.concatenate((x, meta), dim=1)
+
+        v1 = self.policy_head(x)
+        v1 = torch.nn.functional.log_softmax(v1, dim=1)
+
+        v2 = self.value_head(x)
+        v2 = torch.nn.functional.tanh(v2)
+        turn = meta[:, 0].unsqueeze(-1)
+        v2 = v2 * (turn * 2 - 1)
+
         return v1, v2
 
 
-def _load_ckpt(model, checkpoint):
+def _load_ckpt(model, checkpoint, omit=None):
     print("..loading checkpoint: ", checkpoint)
-    r = model.load_state_dict(torch.load(checkpoint, weights_only=True), strict=True)
+    ckpt = torch.load(checkpoint, weights_only=True)
+
+    if omit is not None:
+        del_keys = [
+            key for key in ckpt.keys() if any(key.startswith(pfx) for pfx in omit)
+        ]
+        for key in del_keys:
+            del ckpt[key]
+
+    r = model.load_state_dict(ckpt, strict=omit is None)
     if r.missing_keys:
-        print("missing keys", r.missing_keys)
+        print("missing or omitted keys", r.missing_keys)
     if r.unexpected_keys:
         print("unexpected keys", r.unexpected_keys)
 
 
 def load_model(
-    *, n_res_blocks=19, device=None, checkpoint=None, inference=True, compile=True
+    *,
+    n_res_blocks=19,
+    device=None,
+    checkpoint=None,
+    inference=True,
+    compile=True,
+    omit=None,
 ):
     """
     compile: not possible for training with quantized model
@@ -117,7 +143,7 @@ def load_model(
     model = ChessModule(n_res_blocks=n_res_blocks)
 
     if checkpoint:
-        _load_ckpt(model, checkpoint)
+        _load_ckpt(model, checkpoint, omit=omit)
 
     if inference:
         model.eval()
