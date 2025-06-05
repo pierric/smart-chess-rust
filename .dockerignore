@@ -1,12 +1,16 @@
 *.svg
 *.tensor
+.git/
 .venv/
 runs/
 L9/
 L9-old/
 L13/
+L12/
+.ipynb_checkpoints/
 tmp/
-replay/
+replay*/
 notebooks/
 target/
+eval/
 __pycache__

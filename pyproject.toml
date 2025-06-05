@@ -3,7 +3,7 @@ package-mode = false
 
 [[tool.poetry.source]]
 name = "pytorch-rocm"
-url = "https://download.pytorch.org/whl/rocm6.2.4"
+url = "https://download.pytorch.org/whl/nightly/rocm6.4"
 priority = "explicit"
 
 [tool.poetry.dependencies]
@@ -15,10 +15,12 @@ numpy = "1.26.2"
 onnx = "^1.15.0"
 sympy = "^1.12"
 tensorboard = "^2.15.1"
-#tensorrt = "^10.0"
-torch = { version = "2.6.0", source = "pytorch-rocm" }
-torchvision = { version = "0.21.0", source = "pytorch-rocm" }
-pytorch-triton-rocm = { version = "3.2.0", source = "pytorch-rocm" }
+#torch = { version = "2.8.0.dev20250517", source = "pytorch-rocm" }
+#torchvision = { version = "0.22.0.dev20250517", source = "pytorch-rocm" }
+#pytorch-triton-rocm = { version = "3.3.0", source = "pytorch-rocm" }
+torch = { url = "https://download.pytorch.org/whl/nightly/rocm6.4/torch-2.8.0.dev20250517%2Brocm6.4-cp312-cp312-manylinux_2_28_x86_64.whl" }
+torchvision = { url = "https://download.pytorch.org/whl/nightly/rocm6.4/torchvision-0.22.0.dev20250517%2Brocm6.4-cp312-cp312-manylinux_2_28_x86_64.whl" }
+pytorch-triton-rocm = { url = "https://download.pytorch.org/whl/nightly/pytorch_triton_rocm-3.3.0%2Bgit96316ce5-cp312-cp312-linux_x86_64.whl" }
 #torch-tensorrt = { url = "https://download.pytorch.org/whl/cu121/torch_tensorrt-2.3.0%2Bcu121-cp312-cp312-linux_x86_64.whl" }
 pandas = "^2.2.3"
 ipython = "^8.31.0"
