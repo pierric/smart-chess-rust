@@ -124,6 +124,11 @@ def split(args):
             for g in group_keys
         ]
 
+    print("Selected")
+    for c, g in zip("wbd", groups_col):
+        print(c, ":", len(g))
+    print("--------")
+
     def _split(d):
         nval = int(len(d) * args.ratio)
         assert nval > 0
@@ -131,8 +136,8 @@ def split(args):
 
     val, train = zip(*[_split(g) for g in groups_col])
 
-    val = pd.concat(val)
-    train = pd.concat(train)
+    val = pd.concat(val).sample(frac=1).reset_index(drop=True)
+    train = pd.concat(train).sample(frac=1).reset_index(drop=True)
 
     print(f"val split: {len(val)} samples")
     print(f"train split: {len(train)} samples")

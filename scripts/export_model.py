@@ -41,6 +41,8 @@ def main():
         ("amp", "pt"): lambda: export.export_fp16,
         ("bf16", "pt"): lambda: export.export_pt_bf16,
         ("bf16", "pt2"): lambda: export.export_pt2_bf16,
+        ("simple", "onnx"): lambda: partial(export.export_onnx, fp16=False),
+        ("fp16", "onnx"): lambda: partial(export.export_onnx, fp16=True),
         ("ptq", "onnx"): lambda: partial(export.export_ptq, calib=args.calib),
     }
 

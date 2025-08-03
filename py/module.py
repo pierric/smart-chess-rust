@@ -54,6 +54,40 @@ class TwoLinearLayer(torch.nn.Module):
         return self.model(x)
 
 
+class PolicyHead(torch.nn.Module):
+    def __init__(self, din):
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Conv2d(din, 73, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(73),
+            torch.nn.Flatten(),
+            torch.nn.ReLU(),
+            torch.nn.Linear(8 * 8 * 73, 8 * 8 * 73),
+            torch.nn.LogSoftmax(dim=1),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ValueHead(torch.nn.Module):
+    def __init__(self, din):
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Conv2d(din, 4, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(4),
+            torch.nn.Flatten(),
+            torch.nn.ReLU(),
+            torch.nn.Linear(8 * 8 * 4, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 1),
+            torch.nn.Tanh(),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
 class ChessModule(torch.nn.Module):
     def __init__(self, n_res_blocks=19, n_boards=8):
         super().__init__()
@@ -66,7 +100,7 @@ class ChessModule(torch.nn.Module):
         # 8 boards (14 channels each)
         self.conv_block = torch.nn.Sequential(
             torch.nn.Conv2d(
-                14 * n_boards, 256, kernel_size=5, stride=1, padding=2, bias=False
+                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=False
             ),
             torch.nn.BatchNorm2d(256),
             torch.nn.ReLU(inplace=False),
@@ -74,10 +108,12 @@ class ChessModule(torch.nn.Module):
 
         self.res_blocks = torch.nn.ModuleList([ResBlock() for _ in range(n_res_blocks)])
 
-        mid = 512
-        self.dropout = DropoutBlock(256, mid, 0.1)
-        self.value_head = TwoLinearLayer(8 * 8 * mid + 7, 512, 1)
-        self.policy_head = TwoLinearLayer(8 * 8 * mid + 7, 2048, 8 * 8 * 73)
+        # mid = 512
+        # self.dropout = DropoutBlock(256, mid, 0.1)
+        # self.value_head = TwoLinearLayer(8 * 8 * mid + 7, 512, 1)
+        # self.policy_head = TwoLinearLayer(8 * 8 * mid + 7, 2048, 8 * 8 * 73)
+        self.value_head = ValueHead(256)
+        self.policy_head = PolicyHead(256)
 
     def forward(self, inp):
         # inp shape bx119x8x8
@@ -91,14 +127,9 @@ class ChessModule(torch.nn.Module):
         for block in self.res_blocks:
             x = block(x)
 
-        x = self.dropout(x)
-        x = torch.concatenate((x, meta), dim=1)
-
         v1 = self.policy_head(x)
-        v1 = torch.nn.functional.log_softmax(v1, dim=1)
 
         v2 = self.value_head(x)
-        v2 = torch.nn.functional.tanh(v2)
         turn = meta[:, 0].unsqueeze(-1)
         v2 = v2 * (turn * 2 - 1)
 

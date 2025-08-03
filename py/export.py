@@ -1,3 +1,7 @@
+import tempfile
+import os
+from contextlib import contextmanager
+
 import torch
 
 
@@ -32,7 +36,7 @@ def export_ptq(model, *, output, calib):
 
     dummy_input = torch.randn(1, 119, 8, 8, dtype=torch.float32, device="cuda")
 
-    with pytorch_quantization.enable_onnx_export():
+    with pytorch_quantization.enable_nonnx_export():
         # enable_onnx_checker needs to be disabled. See notes below.
         torch.onnx.export(
             model,
@@ -122,3 +126,38 @@ def export_pt2_bf16(model, *, inp_shape, device, output):
         ):
             ep = torch.export.export(model, (x,))
             torch._inductor.aoti_compile_and_package(ep, package_path=output)
+
+
+@contextmanager
+def unlinking(tmpfile):
+    fd, path = tmpfile
+    os.close(fd)
+    try:
+        yield path
+    finally:
+        os.unlink(path)
+
+
+def export_onnx(model, *, inp_shape, device, output, fp16):
+    x = torch.randn(1, *inp_shape, dtype=torch.float32).to(device=device)
+
+    with unlinking(tempfile.mkstemp(suffix=".onnx")) as tmp:
+        with torch.no_grad():
+            torch.onnx.export(
+                model, x, tmp, input_names=["inp"], output_names=["policy", "value"]
+            )
+
+        if not fp16:
+            import shutil
+
+            shutil.copyfile(tmp, output)
+            return
+
+        import onnx
+        from onnxconverter_common import auto_convert_mixed_precision
+
+        model = onnx.load(tmp)
+        model = auto_convert_mixed_precision(
+            model, {"inp": x.cpu().numpy()}, rtol=0.01, atol=0.001, keep_io_types=True
+        )
+        onnx.save(model, output)

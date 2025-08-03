@@ -6,6 +6,8 @@ N=${N:-100}
 P=${P:-1}
 export PREFIX="${PREFIX:-.}"
 
+echo "$ARGS" > $PREFIX/trace_args
+
 task() {
     JOB_ID=$1
     shift

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 from multiprocessing import Pool
 from functools import partial
+from torch.optim import optimizer
 from tqdm import tqdm
 
 import numpy as np
@@ -47,20 +48,30 @@ class ChessLightningModule(L.LightningModule):
                 checkpoint=config["last_ckpt"],
                 inference=False,
                 compile=False,
+                omit=config.get("omit"),
             )
             self.teacher = None
 
+        freeze_prefix = []
         if config["freeze_backbone"]:
+            freeze_prefix = ["model.conv_block.", "model.res_blocks."]
+
+        if config["freeze"]:
+            freeze_prefix.extend(config["freeze"])
+
+        if freeze_prefix:
             trainable_weights = []
-            prefixes = ["model.conv_block.", "model.res_blocks."]
+
             for name, param in self.named_parameters():
-                if not any(name.startswith(p) for p in prefixes):
+                if not any(name.startswith(p) for p in freeze_prefix):
                     trainable_weights.append(name)
                     continue
                 param.requires_grad = False
             print("Trainnable weights: ", trainable_weights)
 
         if config["compile_model"]:
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cuda.matmul.allow_tf32 = True
             self.model.compile(mode="reduce-overhead", fullgraph=True)
             # skip compiling the teacher, as we don't use do transfer-learning yet.
 
@@ -133,18 +144,24 @@ class ChessLightningModule(L.LightningModule):
         self.trainer.strategy.barrier()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=self.config["lr"],
-            weight_decay=self.config["weight_decay"],
-        )
+        optm = self.config.get("optimizer", "AdamW")
 
-        # optimizer = torch.optim.SGD(
-        #    self.parameters(),
-        #    lr=self.config["lr"],
-        #    momentum=0.9,
-        #    weight_decay=self.config["weight_decay"],
-        # )
+        if optm == "AdamW":
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.config["lr"],
+                weight_decay=self.config["weight_decay"],
+            )
+
+        elif optm == "SGD":
+            optimizer = torch.optim.SGD(
+                self.parameters(),
+                lr=self.config["lr"],
+                momentum=0.9,
+                weight_decay=self.config["weight_decay"],
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {optm}")
 
         if self.config["lr_scheduler"] == "constant":
             return optimizer
@@ -221,11 +238,13 @@ class TransferConf:
 
 
 def main():
-    torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.matmul.allow_tf32 = True
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--trace-file-for-train", nargs="+", action="extend")
     parser.add_argument("-v", "--trace-file-for-val", nargs="+", action="extend")
     parser.add_argument("-n", "--epochs", type=int, default=10)
+    parser.add_argument("--max-epochs", type=int, default=0)
     parser.add_argument("-c", "--last-ckpt", type=str)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
@@ -244,6 +263,10 @@ def main():
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--val-check-interval", type=int, default=0)
     parser.add_argument("--gradient-clip-val", type=float, default=0)
+    parser.add_argument("--optimizer", type=str, default="AdamW")
+
+    parser.add_argument("--omit", type=str, nargs="*")
+    parser.add_argument("--freeze", type=str, nargs="*")
     args = parser.parse_args()
 
     compile_model = not args.no_compile
@@ -314,6 +337,7 @@ def main():
         train_batch_size=args.train_batch_size,
         val_batch_size=args.val_batch_size,
         epochs=args.epochs,
+        max_epochs=args.epochs if args.max_epochs == 0 else args.max_epochs,
         steps_per_epoch=len(train_loader),
         lr=args.lr,
         trace_file_for_train=args.trace_file_for_train,
@@ -331,6 +355,9 @@ def main():
         lr_scheduler=args.lr_scheduler,
         weight_decay=args.weight_decay,
         gradient_clip_val=args.gradient_clip_val,
+        optimizer=args.optimizer,
+        omit=args.omit or None,
+        freeze=args.freeze or None,
     )
 
     module = ChessLightningModule(config)
@@ -346,7 +373,7 @@ def main():
         enable_checkpointing=False,
         logger=logger,
         callbacks=lightning_checkpoints,
-        max_epochs=config["epochs"],
+        max_epochs=config["max_epochs"],
         log_every_n_steps=10,
         # precision="bf16-mixed",
         # val_check_interval=20,
