@@ -84,10 +84,26 @@ def split(args):
 
     def _get_result(f):
         o = json.load(open(f))
-        return (o.get("outcome") or {}).get("winner", None) or "draw"
+        o = o.get("outcome")
+
+        if o is None:
+            return "Unfinished"
+
+        if w := o.get("winner"):
+            return w
+
+        return o.get("termination")
 
     df = pd.DataFrame([{"filename": f, "result": _get_result(f)} for f in tqdm(files)])
-    groups = df.groupby(by="result")
+    df["result_"] = df["result"].map({
+        "White": "White",
+        "Black": "Black",
+        "InsufficientMaterial": "draw",
+        "Stalemate": "draw",
+        "Unfinished": "draw",
+    })
+    df.dropna(inplace=True)
+    groups = df.groupby(by="result_")
 
     group_keys = groups.groups.keys()
 
@@ -96,7 +112,7 @@ def split(args):
     print("--------")
 
     if "White" in group_keys and "Black" in group_keys:
-        nmax = groups.count().loc[["White", "Black"]].max().item()
+        nmax = groups.count().result.loc[["White", "Black"]].max().item()
 
         w = groups.get_group("White")
         b = groups.get_group("Black")
