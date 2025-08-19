@@ -113,19 +113,34 @@ def export_pt_bf16(model, *, inp_shape, device, output):
 
 
 def export_pt2_bf16(model, *, inp_shape, device, output):
+    inductor_configs = {
+        "conv_1x1_as_mm": True,
+        "epilogue_fusion": False,
+        "coordinate_descent_tuning": True,
+        "coordinate_descent_check_all_directions": True,
+        "max_autotune": True,
+        "triton.cudagraphs": True,
+    }
+
     torch.set_float32_matmul_precision("high")
     # assuming the model was trained with AMP
 
     # fix the batch dim to be 1. There is some wierd restriction
     # with torch.export.Dim, the batch dim can be anything other than 1
-    x = torch.randn(1, *inp_shape, dtype=torch.bfloat16).to(device=device)
+    x = torch.randn(2, *inp_shape, dtype=torch.bfloat16).to(device=device)
+    batch = torch.export.Dim("batch")
 
     with torch.no_grad():
         with torch.autocast(
             device_type=device, dtype=torch.bfloat16, cache_enabled=False
         ):
-            ep = torch.export.export(model, (x,))
-            torch._inductor.aoti_compile_and_package(ep, package_path=output)
+            ep = torch.export.export(
+                model, args=(x,), dynamic_shapes=({0: batch},), strict=True
+            )
+            # torch.export.save(ep, "/tmp/exported.pt2")
+            torch._inductor.aoti_compile_and_package(
+                ep, package_path=output, inductor_configs=inductor_configs
+            )
 
 
 @contextmanager
