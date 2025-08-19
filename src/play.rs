@@ -3,13 +3,14 @@ use rand::distributions::Distribution;
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
 use std::boxed::Box;
+use std::cell::{Ref, RefCell};
 use std::cmp::Eq;
 use std::path::Path;
 use std::sync::Arc;
-use std::cell::{RefCell, Ref};
 use trace::Trace;
 use uci::Engine;
 
+mod backends;
 mod chess;
 mod game;
 mod knightmoves;
@@ -17,9 +18,8 @@ mod mcts;
 mod queenmoves;
 mod trace;
 mod underpromotions;
-mod backends;
 
-use backends::torch::{ChessTS, ChessEP};
+use backends::torch::{ChessEP, ChessTS};
 
 #[allow(non_camel_case_types)]
 mod jina {
@@ -144,7 +144,14 @@ struct NNPlayer<G: game::Game<chess::BoardState>> {
 }
 
 impl NNPlayer<ChessTS> {
-    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32, temperature_switch: u32) -> Self {
+    fn load(
+        device: &str,
+        checkpoint: &Path,
+        n_rollout: i32,
+        cpuct: f32,
+        temperature: f32,
+        temperature_switch: u32,
+    ) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
@@ -168,7 +175,14 @@ impl NNPlayer<ChessTS> {
 }
 
 impl NNPlayer<ChessEP> {
-    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32, temperature_switch: u32) -> Self {
+    fn load(
+        device: &str,
+        checkpoint: &Path,
+        n_rollout: i32,
+        cpuct: f32,
+        temperature: f32,
+        temperature_switch: u32,
+    ) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
@@ -188,7 +202,6 @@ impl NNPlayer<ChessEP> {
             temperature_switch,
         }
     }
-
 }
 
 impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
@@ -212,7 +225,11 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             return None;
         }
 
-        let temperature = if cursor.current().depth < self.temperature_switch {1.0} else {self.temperature};
+        let temperature = if cursor.current().depth < self.temperature_switch {
+            1.0
+        } else {
+            self.temperature
+        };
 
         let choice: usize = if temperature == 0.0 {
             let max = num_act_vec.iter().max().unwrap();
@@ -235,7 +252,12 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     }
 }
 
-fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, trace: &mut Trace<chess::Move, chess::Outcome>) {
+fn step(
+    choice: usize,
+    cursor: &mut MctsCursor,
+    state: &mut chess::BoardState,
+    trace: &mut Trace<chess::Move, chess::Outcome>,
+) {
     let q_value = cursor.current().q_value;
     let all_children: Vec<(chess::Move, i32, f32)> = cursor
         .current()
@@ -268,29 +290,14 @@ fn play_loop<W, B>(
     W: Player + ?Sized,
     B: Player + ?Sized,
 {
-    let mut count = 0;
-
-    loop {
-        let next = white.bestmove(cursor, state);
-        if next.is_none() {
-            break;
-        }
+    for ind in 0..200 {
+        let next = if ind % 2 == 0 {
+            white.bestmove(cursor, state)
+        } else {
+            black.bestmove(cursor, state)
+        };
         step(next.unwrap(), cursor, state, trace);
         if state.outcome().is_some() {
-            break;
-        }
-
-        let next = black.bestmove(cursor, state);
-        if next.is_none() {
-            break;
-        }
-        step(next.unwrap(), cursor, state, trace);
-        if state.outcome().is_some() {
-            break;
-        }
-
-        count += 1;
-        if count >= 150 {
             break;
         }
     }
