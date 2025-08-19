@@ -1,5 +1,6 @@
 import argparse
 import json
+from math import exp, log
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -166,19 +167,31 @@ class ChessLightningModule(L.LightningModule):
         if self.config["lr_scheduler"] == "constant":
             return optimizer
 
-        from torch.optim.lr_scheduler import OneCycleLR
+        from torch.optim.lr_scheduler import OneCycleLR, ExponentialLR
 
-        scheduler = OneCycleLR(
-            optimizer=optimizer,
-            max_lr=self.config["lr"],
-            total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
-        )
+        sched = self.config["lr_scheduler"]
+        if sched == "exponential":
+            gamma = exp(log(0.2) / self.config["epochs"])
+            print(f"using gamma: {gamma:.4f}")
+            scheduler = ExponentialLR(optimizer=optimizer, gamma=gamma)
+            interval = "epoch"
+
+        elif sched == "onecycle":
+            scheduler = OneCycleLR(
+                optimizer=optimizer,
+                max_lr=self.config["lr"],
+                total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+            )
+            interval = "step"
+
+        else:
+            raise RuntimeError("unknown scheduler: " + sched)
 
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "interval": "step",
+                "interval": interval,
                 "frequency": 1,
             },
         }
@@ -256,7 +269,10 @@ def main():
     parser.add_argument("--train-batch-size", type=int, default=1024)
     parser.add_argument("--val-batch-size", type=int, default=128)
     parser.add_argument(
-        "--lr-scheduler", type=str, choices=["constant", "onecycle"], default="constant"
+        "--lr-scheduler",
+        type=str,
+        choices=["constant", "exponential", "onecycle"],
+        default="constant",
     )
     parser.add_argument("--freeze-backbone", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
@@ -348,9 +364,11 @@ def main():
         save_every_k=args.save_every_k,
         loss_weight=args.loss_weight,
         compile_model=compile_model,
-        model_conf=None
-        if args.model_conf is None
-        else TransferConf.parse(args.model_conf) or int(args.model_conf),
+        model_conf=(
+            None
+            if args.model_conf is None
+            else TransferConf.parse(args.model_conf) or int(args.model_conf)
+        ),
         freeze_backbone=args.freeze_backbone,
         lr_scheduler=args.lr_scheduler,
         weight_decay=args.weight_decay,

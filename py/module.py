@@ -1,4 +1,5 @@
 import torch
+
 # import torch_tensorrt
 
 
@@ -58,11 +59,11 @@ class PolicyHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
         self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 73, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(73),
+            torch.nn.Conv2d(din, 128, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(128),
             torch.nn.Flatten(),
             torch.nn.ReLU(),
-            torch.nn.Linear(8 * 8 * 73, 8 * 8 * 73),
+            torch.nn.Linear(8 * 8 * 128, 8 * 8 * 73),
             torch.nn.LogSoftmax(dim=1),
         )
 
@@ -74,11 +75,11 @@ class ValueHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
         self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 4, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(4),
+            torch.nn.Conv2d(din, 8, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(8),
             torch.nn.Flatten(),
             torch.nn.ReLU(),
-            torch.nn.Linear(8 * 8 * 4, 256),
+            torch.nn.Linear(8 * 8 * 8, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 1),
             torch.nn.Tanh(),
@@ -183,3 +184,37 @@ def load_model(
         model = torch.compile(model, mode="reduce-overhead", fullgraph=True)
 
     return model.to(device)
+
+
+def _wrapup_py(model):
+
+    def inference(inp):
+        with torch.no_grad():
+            with torch.autocast(
+                device_type="cuda", dtype=torch.bfloat16, cache_enabled=False
+            ):
+                return model(inp)
+
+    return inference
+
+
+def load_model_for_inference(checkpoint, n_res_blocks=None):
+    if checkpoint.endswith(".ckpt"):
+        assert n_res_blocks is not None
+        return _wrapup_py(
+            load_model(
+                n_res_blocks=int(n_res_blocks),
+                checkpoint=checkpoint,
+                inference=True,
+                device="cuda",
+            )
+        )
+
+    if checkpoint.endswith(".pt"):
+        return torch.jit.load(checkpoint)
+
+    if checkpoint.endswith(".pt2"):
+        return torch._inductor.aoti_load_package(checkpoint)
+        # return _wrapup_py(torch.export.load(checkpoint).module())
+
+    raise RuntimeError("unsupported model " + checkpoint)
