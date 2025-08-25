@@ -336,9 +336,9 @@ fn load_checkpoint<P: AsRef<Path>>(
 }
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    // tracing_subscriber::fmt::init();
     unsafe {
-        backtrace_on_stack_overflow::enable();
+        // backtrace_on_stack_overflow::enable();
         //match libloading::Library::new("libtorchtrt.so") {
         //    Err(e) => println!("torch_tensorrt not found: {}", e),
         //    Ok(_) => (),

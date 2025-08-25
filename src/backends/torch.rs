@@ -1,8 +1,8 @@
 use short_uuid::ShortUuid;
 use tch::Tensor;
 
-use crate::game::{Game, TchModel, prepare_tensors, tensor_to_f32, post_process_distr};
-use crate::chess::{Step, Color, Move, BoardState, _encode};
+use crate::chess::{BoardState, Color, Move, Step, _encode};
+use crate::game::{post_process_distr, prepare_tensors, tensor_to_f32, Game, TchModel};
 use crate::mcts::ArcRefNode;
 
 pub struct ChessTS {
@@ -17,7 +17,10 @@ pub struct ChessEP {
 
 impl TchModel for ChessTS {
     fn forward(&self, inp: Tensor) -> (Tensor, Tensor) {
-        let out = self.model.forward_is(&[tch::jit::IValue::from(inp)]).unwrap();
+        let out = self
+            .model
+            .forward_is(&[tch::jit::IValue::from(inp)])
+            .unwrap();
         <(Tensor, Tensor)>::try_from(out).unwrap()
     }
 
@@ -80,7 +83,6 @@ pub fn chess_tch_predict<M: TchModel>(
     argmax: bool,
     return_full_distr: bool,
 ) -> (Vec<Step>, Vec<f32>, f32) {
-
     let legal_moves = state.legal_moves();
 
     if legal_moves.is_empty() {
@@ -124,13 +126,19 @@ pub fn chess_tch_predict<M: TchModel>(
     return (next_steps, moves_distr, score);
 }
 
-fn _get_move_distribution(model_distr_output: Tensor, turn: Color, legal_moves: &Vec<Move>, return_full: bool) -> Vec<f32> {
-    let full_distr = model_distr_output.to_dtype(tch::Kind::Float, true, false).to_device(tch::Device::Cpu);
+fn _get_move_distribution(
+    model_distr_output: Tensor,
+    turn: Color,
+    legal_moves: &Vec<Move>,
+    return_full: bool,
+) -> Vec<f32> {
+    let full_distr = model_distr_output
+        .to_dtype(tch::Kind::Float, true, false)
+        .to_device(tch::Device::Cpu);
 
     if return_full {
         Vec::<f32>::try_from(full_distr.squeeze().exp()).unwrap()
-    }
-    else {
+    } else {
         // rotate if the next move is black
         let encoded_moves: Vec<i64> = legal_moves
             .iter()

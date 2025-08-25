@@ -56,7 +56,7 @@ def main():
         differences_policy.append(
             total_variation_distance(p1.exp().cpu().numpy(), p2.exp().cpu().numpy())
         )
-        differences_value.append(abs(d1 - d2).item())
+        differences_value.append(abs(d1.cpu() - d2.cpu()).item())
 
     diff = np.array(differences_policy)
     print(

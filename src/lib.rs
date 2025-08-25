@@ -2,17 +2,17 @@ use ndarray::{Array1, Ix1};
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
-use std::collections::{HashMap, HashSet};
 use std::cell::{RefCell, RefMut};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+pub mod backends;
 pub mod chess;
 pub mod game;
 pub mod knightmoves;
 pub mod mcts;
 pub mod queenmoves;
 pub mod underpromotions;
-pub mod backends;
 
 #[allow(non_camel_case_types)]
 mod jina {
@@ -33,45 +33,23 @@ fn chess_encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
 
 #[pyfunction]
 fn chess_encode_steps(
-    steps: Vec<(chess::Move, Vec<(chess::Move, u32)>)>, apply_mirror: bool
+    steps: Vec<(chess::Move, Vec<(chess::Move, u32)>)>,
+    apply_mirror: bool,
 ) -> PyResult<Vec<(PyObject, PyObject, PyObject, PyObject)>> {
     let mut history = chess::BoardHistory::new(chess::LOOKBACK);
     let mut board_state = chess::BoardState::new();
 
     let mut ret = Vec::new();
 
-    let flip_color = chess::Color::Black;
-
     Python::with_gil(|py| {
         for (next_mov, num_act) in steps.iter() {
             let num_act_dict: HashMap<chess::Move, u32> = num_act.iter().cloned().collect();
-            let step = if apply_mirror {
-                board_state.to_board().rotate()
-            } else {
-                board_state.to_board()
-            };
-
-            // rotate the move if black
-            let rotate_and_encode = |m: &chess::Move| -> i32 {
-                if step.turn == flip_color {
-                    m.rotate().encode()
-                } else {
-                    m.encode()
-                }
-            };
 
             let legal_moves = board_state.legal_moves();
-            // latter boards stay at the front
-            history.push_front(&step);
-
-            let encoded_boards = history.view(step.turn == flip_color);
-            let encoded_meta = step.encode_meta();
-
-            let moves_indices: Vec<i32> = legal_moves.iter().map(rotate_and_encode).collect();
 
             // sanity check of the input matching the legal moves
             let set_moves_in: HashSet<chess::Move> = num_act_dict.keys().cloned().collect();
-            let set_moves_exp: HashSet<chess::Move> = legal_moves.into_iter().collect();
+            let set_moves_exp: HashSet<chess::Move> = legal_moves.clone().into_iter().collect();
 
             let diff: Vec<_> = set_moves_in.symmetric_difference(&set_moves_exp).collect();
             if diff.len() > 0 {
@@ -84,6 +62,30 @@ fn chess_encode_steps(
             if !set_moves_exp.contains(next_mov) {
                 panic!("num_act table doesn't include the next move");
             }
+
+            let step = if apply_mirror {
+                board_state.to_board().rotate()
+            } else {
+                board_state.to_board()
+            };
+
+            // regardless of the apply_mirr, rotate the original move is black
+            let rotate_and_encode = |m: &chess::Move| -> i32 {
+                let ori_turn = if apply_mirror { !step.turn } else { step.turn };
+                if ori_turn == chess::Color::Black {
+                    m.rotate().encode()
+                } else {
+                    m.encode()
+                }
+            };
+
+            // latter boards stay at the front
+            history.push_front(&step);
+
+            let encoded_boards = history.view(step.turn == chess::Color::Black);
+            let encoded_meta = step.encode_meta();
+
+            let moves_indices: Vec<i32> = legal_moves.iter().map(rotate_and_encode).collect();
 
             let sum_num_act: u32 = num_act_dict.values().sum();
             let mut encoded_dist = Array1::<f32>::zeros((8 * 8 * 73,));
@@ -121,20 +123,23 @@ fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyOb
         } else {
             board.rotate()
         };
-        let encoded_boards: Bound<'_, PyArray3<i8>> = PyArray3::from_array(py, &board.encode_pieces());
+        let encoded_boards: Bound<'_, PyArray3<i8>> =
+            PyArray3::from_array(py, &board.encode_pieces());
         let encoded_meta: Bound<'_, PyArray1<i32>> = PyArray1::from_array(py, &board.encode_meta());
-        Ok((encoded_boards.unbind().into_any(), encoded_meta.unbind().into_any()))
+        Ok((
+            encoded_boards.unbind().into_any(),
+            encoded_meta.unbind().into_any(),
+        ))
     })
 }
 
 #[allow(dead_code)]
 struct ChessEngineState {
-    chess: backends::torch::ChessEP,
+    chess: RefCell<backends::torch::ChessEP>,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
 }
-
 
 // NOTE: it is not possible to be Send safely without adding locks, as the cursor part
 // carries mutable data. But for the use case, it is just right to fake a Send impl,
@@ -142,7 +147,11 @@ struct ChessEngineState {
 unsafe impl Send for ChessEngineState {}
 
 #[pyfunction]
-fn chess_play_new(checkpoint: &str, device: &str, initial_moves: Vec<chess::Move>) -> PyResult<PyObject> {
+fn chess_play_new(
+    checkpoint: &str,
+    device: &str,
+    initial_moves: Vec<chess::Move>,
+) -> PyResult<PyObject> {
     let device = match device {
         "cpu" => tch::Device::Cpu,
         "cuda" => tch::Device::Cuda(0),
@@ -188,7 +197,7 @@ fn chess_play_new(checkpoint: &str, device: &str, initial_moves: Vec<chess::Move
     }
 
     let state = RefCell::new(ChessEngineState {
-        chess: chess,
+        chess: RefCell::new(chess),
         board: board,
         root: root,
         cursor: cursor,
@@ -203,9 +212,19 @@ fn chess_play_new(checkpoint: &str, device: &str, initial_moves: Vec<chess::Move
 #[pyfunction]
 fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
+        let state = unsafe {
+            state
+                .bind(py)
+                .reference::<RefCell<ChessEngineState>>()
+                .borrow_mut()
+        };
         mcts::mcts(
-            &state.chess, state.cursor.arc(), &state.board, rollout, Some(cpuct), true
+            &mut *state.chess.borrow_mut(),
+            state.cursor.arc(),
+            &state.board,
+            rollout,
+            Some(cpuct),
+            true,
         );
     })
 }
@@ -213,16 +232,26 @@ fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
 #[pyfunction]
 fn chess_play_step(state: Py<PyCapsule>, temp: f32) {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow_mut() };
+        let state = unsafe {
+            state
+                .bind(py)
+                .reference::<RefCell<ChessEngineState>>()
+                .borrow_mut()
+        };
         let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
         mcts::step(&mut *cursor, &mut *board, temp);
     })
 }
 
 #[pyfunction]
-fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)>{
+fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)> {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
+        let state = unsafe {
+            state
+                .bind(py)
+                .reference::<RefCell<ChessEngineState>>()
+                .borrow()
+        };
         let board = Py::clone_ref(&state.board.python_object, py);
         let node = state.cursor.current();
         let q_value = node.q_value;
@@ -248,7 +277,11 @@ fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyO
 
         let m = move_stack.into_pyobject(py).unwrap().unbind().into_any();
         let q = q_value.into_pyobject(py).unwrap().unbind().into_any();
-        let a = num_act_children.into_pyobject(py).unwrap().unbind().into_any();
+        let a = num_act_children
+            .into_pyobject(py)
+            .unwrap()
+            .unbind()
+            .into_any();
         Ok((board, m, q, a))
     })
 }
@@ -256,7 +289,12 @@ fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyO
 #[pyfunction]
 fn chess_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
+        let state = unsafe {
+            state
+                .bind(py)
+                .reference::<RefCell<ChessEngineState>>()
+                .borrow()
+        };
         let json = serde_json::to_string(&*state.root.borrow()).unwrap();
         let json_module = py.import("json")?;
         let ret = json_module.getattr("loads")?.call1((json,))?.unbind();
@@ -265,11 +303,25 @@ fn chess_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-fn chess_play_inference(state: Py<PyCapsule>, full_distr: bool) -> PyResult<(PyObject, PyObject, PyObject)> {
+fn chess_play_inference(
+    state: Py<PyCapsule>,
+    full_distr: bool,
+) -> PyResult<(PyObject, PyObject, PyObject)> {
     Python::with_gil(|py| {
-        let state = unsafe { state.bind(py).reference::<RefCell<ChessEngineState>>().borrow() };
+        let state = unsafe {
+            state
+                .bind(py)
+                .reference::<RefCell<ChessEngineState>>()
+                .borrow()
+        };
 
-        let (steps, prior, outcome) = backends::torch::chess_tch_predict(&state.chess, &state.cursor.arc(), &state.board, false, full_distr);
+        let (steps, prior, outcome) = backends::torch::chess_tch_predict(
+            &*state.chess.borrow(),
+            &state.cursor.arc(),
+            &state.board,
+            false,
+            full_distr,
+        );
         let steps = steps.into_pyobject(py)?.unbind().into_any();
         let prior = prior.into_pyobject(py)?.unbind().into_any();
         let outcome = outcome.into_pyobject(py)?.unbind().into_any();

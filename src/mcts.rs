@@ -2,13 +2,13 @@ use crate::game::{Game, State};
 use rand::distributions::WeightedIndex;
 use rand::thread_rng;
 use rand_distr::{Dirichlet, Distribution};
+use serde::ser::{SerializeSeq, SerializeStruct};
 use serde::{Serialize, Serializer};
-use serde::ser::{SerializeStruct, SerializeSeq};
-use std::iter::Sum;
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::VecDeque;
+use std::fmt::{Debug, Display};
+use std::iter::Sum;
 use std::sync::{Arc, Weak};
-use std::cell::{RefCell, Ref, RefMut};
-use std::fmt::{Display, Debug};
 
 pub type ArcRefNode<T> = Arc<RefCell<Node<T>>>;
 type WeakRefNode<T> = Weak<RefCell<Node<T>>>;
@@ -35,7 +35,7 @@ impl<'a, T: Serialize> Serialize for ChildrenList<'a, T> {
         for elem in self.0 {
             seq.serialize_element(&*elem.borrow())?;
         }
-        seq.end() 
+        seq.end()
     }
 }
 
@@ -145,9 +145,7 @@ where
     let mut path: VecDeque<ArcRefNode<S::Step>> = VecDeque::from([node.clone()]);
 
     loop {
-        let (recent_node, path_len) = {
-            (path.back().unwrap().clone(), path.len())
-        };
+        let (recent_node, path_len) = { (path.back().unwrap().clone(), path.len()) };
 
         let (steps, prior, outcome) = game.predict(&recent_node, &state, false);
         let reverse_q = game.reverse_q(&recent_node);
@@ -176,10 +174,10 @@ where
                 match get_noise(steps.len()) {
                     None => prior.clone(),
                     Some(noise) => prior
-                    .iter()
-                    .zip(noise.iter())
-                    .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
-                    .collect(),
+                        .iter()
+                        .zip(noise.iter())
+                        .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
+                        .collect(),
                 }
             };
 
@@ -199,8 +197,9 @@ where
                     )
                 })
                 .collect();
-            if uct_children.is_empty() || uct_children.iter().any(|v| !v.is_finite()) ||
-                uct_children.len() != children.len()
+            if uct_children.is_empty()
+                || uct_children.iter().any(|v| !v.is_finite())
+                || uct_children.len() != children.len()
             {
                 println!("path len: {}", path_len);
                 println!("len uct: {}", uct_children.len());
@@ -228,8 +227,14 @@ impl<T> Node<T> {
     }
 }
 
-pub fn mcts<G, S>(game: &G, node: &ArcRefNode<S::Step>, state: &S, n_rollout: i32, cpuct: Option<f32>, with_noise: bool)
-where
+pub fn mcts<G, S>(
+    game: &G,
+    node: &ArcRefNode<S::Step>,
+    state: &S,
+    n_rollout: i32,
+    cpuct: Option<f32>,
+    with_noise: bool,
+) where
     G: Game<S> + ?Sized,
     S: State,
     S::Step: Display + Debug,
@@ -293,10 +298,7 @@ where
 
     let choice: usize = if temp == 0.0 {
         let max = num_act_vec.iter().max().unwrap();
-        num_act_vec
-            .iter()
-            .position(|v| v == max)
-            .unwrap()
+        num_act_vec.iter().position(|v| v == max).unwrap()
     } else {
         let power = 1.0 / temp;
         let weights =
@@ -371,7 +373,7 @@ impl<T> Cursor<T> {
         match parent {
             None => {
                 panic!("navigating to the parent, but already at the root");
-            },
+            }
             Some(parent) => {
                 let parent_arc = parent.upgrade();
                 if parent_arc.is_none() {
@@ -382,4 +384,3 @@ impl<T> Cursor<T> {
         }
     }
 }
-

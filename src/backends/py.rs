@@ -1,13 +1,13 @@
-use numpy::{PyArray, PyArrayMethods};
+use c_str_macro::c_str;
+use ndarray::{Array1, Array3};
 use numpy::array::{PyArray1, PyArray3};
+use numpy::{PyArray, PyArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::*;
-use ndarray::{Array1, Array3};
-use c_str_macro::c_str;
 
-use crate::chess::{Color, Move, Step, BoardState, _encode};
-use crate::mcts::ArcRefNode;
+use crate::chess::{BoardState, Color, Move, Step, _encode};
 use crate::game;
+use crate::mcts::ArcRefNode;
 
 pub struct ChessPy {
     pub model: Py<PyAny>,
@@ -70,7 +70,8 @@ fn call_py_model(
         let encoded_boards = PyArray3::from_array(py, &boards);
         let encoded_meta = PyArray1::from_array(py, &meta);
 
-        let code = c_str!(r#"
+        let code = c_str!(
+            r#"
 encoded_meta = encode_meta[None,:].repeat(64).reshape((8, 8, 7))
 inp = np.concatenate((encoded_boards, encoded_meta), axis=-1).astype(np.float32)
 inp = inp.transpose((2, 0, 1))
@@ -83,7 +84,8 @@ with torch.no_grad():
 ret_distr = ret_distr.detach().cpu().numpy().squeeze()
 ret_distr = np.exp(ret_distr)
 ret_score = ret_score.detach().cpu().item()
-"#);
+"#
+        );
         let locals = [
             ("np", py.import("numpy").unwrap().as_ref()),
             ("torch", py.import("torch").unwrap().as_ref()),
@@ -91,7 +93,8 @@ ret_score = ret_score.detach().cpu().item()
             ("encoded_meta", encoded_meta.as_ref()),
             ("model", model.bind(py)),
             ("device", PyString::new(py, device).as_any()),
-        ].into_py_dict(py)?;
+        ]
+        .into_py_dict(py)?;
         py.run(code, None, Some(&locals))?;
 
         let full_distr: Bound<'_, PyArray1<f32>> = locals
@@ -127,6 +130,6 @@ ret_score = ret_score.detach().cpu().item()
             .and_then(|o| o.extract())?;
 
         Ok::<_, PyErr>((moves_distr, score))
-    }).unwrap()
+    })
+    .unwrap()
 }
-
