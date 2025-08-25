@@ -15,6 +15,7 @@ def main():
     psplit.add_argument("-r", "--ratio", default=0.1, type=float)
     psplit.add_argument("-v", "--val", required=True)
     psplit.add_argument("-t", "--train", required=True)
+    psplit.add_argument("--factor-draw", type=float, default=1.0)
     psplit.add_argument(
         "--sample-draw", choices=["sample", "keep-all"], default="sample"
     )
@@ -95,13 +96,15 @@ def split(args):
         return o.get("termination")
 
     df = pd.DataFrame([{"filename": f, "result": _get_result(f)} for f in tqdm(files)])
-    df["result_"] = df["result"].map({
-        "White": "White",
-        "Black": "Black",
-        "InsufficientMaterial": "draw",
-        "Stalemate": "draw",
-        "Unfinished": "draw",
-    })
+    df["result_"] = df["result"].map(
+        {
+            "White": "White",
+            "Black": "Black",
+            "InsufficientMaterial": "draw",
+            "Stalemate": "draw",
+            "Unfinished": "draw",
+        }
+    )
     df.dropna(inplace=True)
     groups = df.groupby(by="result_")
 
@@ -124,6 +127,9 @@ def split(args):
 
         if "draw" in group_keys:
             if args.sample_draw == "sample":
+                if args.factor_draw is not None:
+                    total_draw = len(groups.get_group("draw"))
+                    nmax = min(total_draw, int(args.factor_draw * nmax))
                 d = groups.get_group("draw").sample(n=nmax)
             elif args.sample_draw == "keep-all":
                 d = groups.get_group("draw")
