@@ -1,4 +1,6 @@
 import torch
+from torch._prims_common import check
+from torchvision.ops import SqueezeExcitation
 
 # import torch_tensorrt
 
@@ -21,6 +23,34 @@ class ResBlock(torch.nn.Module):
         out = torch.relu(self.bn1(out))
         out = self.conv2(out)
         out = self.bn2(out)
+        out = out + residual
+        out = torch.relu(out)
+        return out
+
+
+class ResBlockSE(torch.nn.Module):
+    def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
+        super().__init__()
+        self.conv1 = torch.nn.Conv2d(
+            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=True
+        )
+        self.bn1 = torch.nn.BatchNorm2d(planes)
+        self.conv2 = torch.nn.Conv2d(
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=True
+        )
+        self.bn2 = torch.nn.BatchNorm2d(planes)
+        self.se = SqueezeExcitation(
+            planes,
+            planes // 2,
+        )
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = torch.relu(self.bn1(out))
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.se(out)
         out = out + residual
         out = torch.relu(out)
         return out
@@ -59,11 +89,11 @@ class PolicyHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
         self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 128, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(128),
+            torch.nn.Conv2d(din, 256, kernel_size=1, bias=True),
+            torch.nn.BatchNorm2d(256),
+            torch.nn.Conv2d(din, 73, kernel_size=1, bias=True),
+            torch.nn.BatchNorm2d(73),
             torch.nn.Flatten(),
-            torch.nn.ReLU(),
-            torch.nn.Linear(8 * 8 * 128, 8 * 8 * 73),
             torch.nn.LogSoftmax(dim=1),
         )
 
@@ -75,13 +105,13 @@ class ValueHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
         self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 8, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(8),
+            torch.nn.Conv2d(din, 32, kernel_size=1, bias=True),
+            torch.nn.BatchNorm2d(32),
             torch.nn.Flatten(),
             torch.nn.ReLU(),
-            torch.nn.Linear(8 * 8 * 8, 256),
+            torch.nn.Linear(8 * 8 * 32, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 1),
+            torch.nn.Linear(128, 1),
             torch.nn.Tanh(),
         )
 
@@ -101,13 +131,15 @@ class ChessModule(torch.nn.Module):
         # 8 boards (14 channels each)
         self.conv_block = torch.nn.Sequential(
             torch.nn.Conv2d(
-                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=False
+                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=True
             ),
             torch.nn.BatchNorm2d(256),
             torch.nn.ReLU(inplace=False),
         )
 
-        self.res_blocks = torch.nn.ModuleList([ResBlock() for _ in range(n_res_blocks)])
+        self.res_blocks = torch.nn.ModuleList(
+            [ResBlockSE() for _ in range(n_res_blocks)]
+        )
 
         # mid = 512
         # self.dropout = DropoutBlock(256, mid, 0.1)
@@ -216,5 +248,16 @@ def load_model_for_inference(checkpoint, n_res_blocks=None):
     if checkpoint.endswith(".pt2"):
         return torch._inductor.aoti_load_package(checkpoint)
         # return _wrapup_py(torch.export.load(checkpoint).module())
+
+    if checkpoint.endswith(".onnx"):
+        import onnxruntime as ort
+
+        sess = ort.InferenceSession(checkpoint)
+
+        def inference(inp):
+            p, v = sess.run(["policy", "value"], {"inp": inp.float().cpu().numpy()})
+            return torch.from_numpy(p), torch.from_numpy(v)
+
+        return inference
 
     raise RuntimeError("unsupported model " + checkpoint)
