@@ -81,8 +81,7 @@ class ChessLightningModule(L.LightningModule):
         return -(log_dist_pred * dist_gt).sum() / batch_size
 
     def compute_loss2(self, value_pred, value_gt):
-        batch_size = value_gt.shape[0]
-        return F.mse_loss(value_pred, value_gt, reduction="sum") / batch_size
+        return F.mse_loss(value_pred, value_gt, reduction="mean")
 
     def training_step(self, batch, batch_idx):
         boards, dist, outcome = batch
@@ -171,7 +170,8 @@ class ChessLightningModule(L.LightningModule):
 
         sched = self.config["lr_scheduler"]
         if sched == "exponential":
-            gamma = exp(log(0.2) / self.config["epochs"])
+            # gamma = exp(log(0.2) / self.config["epochs"])
+            gamma = 0.85
             print(f"using gamma: {gamma:.4f}")
             scheduler = ExponentialLR(optimizer=optimizer, gamma=gamma)
             interval = "epoch"
@@ -250,6 +250,13 @@ class TransferConf:
         return cls(int(ts[1]), int(ts[0]))
 
 
+def _make_dataset(path):
+    return [
+        ChessDataset(path, False),
+        # ChessDataset(path, True),
+    ]
+
+
 def main():
     torch.set_float32_matmul_precision("high")
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -259,6 +266,7 @@ def main():
     parser.add_argument("-n", "--epochs", type=int, default=10)
     parser.add_argument("--max-epochs", type=int, default=0)
     parser.add_argument("-c", "--last-ckpt", type=str)
+    parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=1)
@@ -303,11 +311,12 @@ def main():
     ]
 
     with Pool(12) as p:
-        dss = list(
+        dss = sum(
             tqdm(
-                p.imap(partial(ChessDataset), args.trace_file_for_train),
+                p.imap(_make_dataset, args.trace_file_for_train),
                 total=len(args.trace_file_for_train),
-            )
+            ),
+            [],
         )
     train_split = ConcatDataset(dss)
 
@@ -323,11 +332,12 @@ def main():
     )
 
     with Pool(12) as p:
-        dss = list(
+        dss = sum(
             tqdm(
-                p.imap(partial(ChessDataset), args.trace_file_for_val),
+                p.imap(_make_dataset, args.trace_file_for_val),
                 total=len(args.trace_file_for_val),
-            )
+            ),
+            [],
         )
     val_syn_split = ConcatDataset(dss)
 
@@ -376,6 +386,7 @@ def main():
         optimizer=args.optimizer,
         omit=args.omit or None,
         freeze=args.freeze or None,
+        resume=args.resume,
     )
 
     module = ChessLightningModule(config)
@@ -397,15 +408,22 @@ def main():
         # val_check_interval=20,
         **extra_params,
     )
+
+    fit_extra_params = {}
+    if args.resume:
+        fit_extra_params["ckpt_path"] = args.resume
+
     trainer.fit(
         model=module,
         train_dataloaders=train_loader,
         val_dataloaders=[val_syn, val_real],
+        **fit_extra_params,
     )
 
+    trainer.save_checkpoint(os.path.join(trainer.log_dir, "last.ckpt"))
     # m = module.model._orig_mod if compile_model else module.model
-    m = module.model
-    torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
+    # m = module.model
+    # torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ export -f task
 export B="${B:-runs/017/tb_logs/chess/version_13/step:469-3.548-0.326.pt2}"
 export W="${W:-tb_logs/chess/version_3/last.pt2}"
 
-export ROLLOUT=${ROLLOUT:-20}
+export ROLLOUT=${ROLLOUT:-100}
 export TEMPERATURE=${TEMPERATURE:-0}
 export TEMPERATURE_SWITCH=${TEMPERATURE_SWITCH:-0}
 export CPUCT=${CPUCT:-2.5}

@@ -1,8 +1,9 @@
 use short_uuid::ShortUuid;
 use tch::Tensor;
 
+use crate::chess::post_process_distr;
 use crate::chess::{BoardState, Color, Move, Step, _encode};
-use crate::game::{post_process_distr, prepare_tensors, tensor_to_f32, Game, TchModel};
+use crate::game::{prepare_tensors, tensor_to_f32, Game, TchModel};
 use crate::mcts::ArcRefNode;
 
 pub struct ChessTS {
@@ -116,7 +117,7 @@ pub fn chess_tch_predict<M: TchModel>(
     }
 
     let moves_distr = _get_move_distribution(full_distr, turn, &legal_moves, return_full_distr);
-    let moves_distr = post_process_distr(moves_distr, argmax);
+    let moves_distr = post_process_distr(moves_distr, argmax, turn);
 
     let next_steps = legal_moves
         .into_iter()

@@ -32,11 +32,11 @@ class ResBlockSE(torch.nn.Module):
     def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
         super().__init__()
         self.conv1 = torch.nn.Conv2d(
-            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=True
+            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
         self.bn1 = torch.nn.BatchNorm2d(planes)
         self.conv2 = torch.nn.Conv2d(
-            planes, planes, kernel_size=3, stride=stride, padding=1, bias=True
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
         self.bn2 = torch.nn.BatchNorm2d(planes)
         self.se = SqueezeExcitation(
@@ -89,9 +89,9 @@ class PolicyHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
         self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 256, kernel_size=1, bias=True),
+            torch.nn.Conv2d(din, 256, kernel_size=1, bias=False),
             torch.nn.BatchNorm2d(256),
-            torch.nn.Conv2d(din, 73, kernel_size=1, bias=True),
+            torch.nn.Conv2d(din, 73, kernel_size=1, bias=False),
             torch.nn.BatchNorm2d(73),
             torch.nn.Flatten(),
             torch.nn.LogSoftmax(dim=1),
@@ -105,7 +105,7 @@ class ValueHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
         self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 32, kernel_size=1, bias=True),
+            torch.nn.Conv2d(din, 32, kernel_size=1, bias=False),
             torch.nn.BatchNorm2d(32),
             torch.nn.Flatten(),
             torch.nn.ReLU(),
@@ -131,7 +131,7 @@ class ChessModule(torch.nn.Module):
         # 8 boards (14 channels each)
         self.conv_block = torch.nn.Sequential(
             torch.nn.Conv2d(
-                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=True
+                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=False
             ),
             torch.nn.BatchNorm2d(256),
             torch.nn.ReLU(inplace=False),
@@ -180,7 +180,16 @@ def _load_ckpt(model, checkpoint, omit=None):
         for key in del_keys:
             del ckpt[key]
 
-    r = model.load_state_dict(ckpt, strict=omit is None)
+    if "pytorch-lightning_version" not in ckpt:
+        state_dict = ckpt
+    else:
+
+        def _chop_prefix(name):
+            return name.split(".", maxsplit=1)[1]
+
+        state_dict = {_chop_prefix(k): v for k, v in ckpt["state_dict"].items()}
+
+    r = model.load_state_dict(state_dict, strict=omit is None)
     if r.missing_keys:
         print("missing or omitted keys", r.missing_keys)
     if r.unexpected_keys:

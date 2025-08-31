@@ -27,32 +27,6 @@ pub trait State {
     fn advance(&mut self, step: &Self::Step);
 }
 
-pub fn post_process_distr(distr: Vec<f32>, argmax: bool) -> Vec<f32> {
-    if argmax {
-        let i: usize = distr
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap()
-            .0;
-        let mut distr = vec![0.; distr.len()];
-        distr[i] = 1.;
-        distr
-    } else {
-        let sum = distr.iter().sum::<f32>() + 1e-5;
-
-        if !sum.is_finite() {
-            println!("Warning: {:?}", distr);
-        }
-
-        if sum < 0.5 {
-            println!("Warning: move distribution sums up to only {}", sum);
-        }
-
-        distr.iter().map(|x| x / sum).collect()
-    }
-}
-
 pub fn prepare_tensors(boards: Array3<i8>, meta: Array1<i32>, device: tch::Device) -> Tensor {
     // copy to device in sync mode
     // otherwise may cause corruption in data (mps)

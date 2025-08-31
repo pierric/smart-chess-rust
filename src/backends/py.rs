@@ -5,6 +5,7 @@ use numpy::{PyArray, PyArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::*;
 
+use crate::chess::post_process_distr;
 use crate::chess::{BoardState, Color, Move, Step, _encode};
 use crate::game;
 use crate::mcts::ArcRefNode;
@@ -44,7 +45,7 @@ impl game::Game<BoardState> for ChessPy {
             &legal_moves,
         );
 
-        let moves_distr = game::post_process_distr(moves_distr, argmax);
+        let moves_distr = post_process_distr(moves_distr, argmax, turn);
         let next_steps = legal_moves
             .into_iter()
             .map(|m| Step(Some(m), !turn))

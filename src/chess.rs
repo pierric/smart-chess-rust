@@ -1,10 +1,5 @@
-use std::collections::hash_map::DefaultHasher;
-use std::collections::VecDeque;
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::ops::Not;
-use std::cmp;
-use cached::{SizedCache, Cached};
+use c_str_macro::c_str;
+use cached::{Cached, SizedCache};
 use ndarray::{s, Array1, Array3, Ix3};
 use once_cell::sync::Lazy;
 use pyo3::conversion::IntoPyObject;
@@ -12,10 +7,15 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use c_str_macro::c_str;
+use std::cmp;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::VecDeque;
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::ops::Not;
 
-use crate::{game, mcts, knightmoves, queenmoves, underpromotions};
-use mcts::{Cursor, ArcRefNode};
+use crate::{game, knightmoves, mcts, queenmoves, underpromotions};
+use mcts::{ArcRefNode, Cursor};
 
 pub const LOOKBACK: usize = 8;
 
@@ -347,8 +347,8 @@ impl<'a> FromPyObject<'a> for Board {
         let halfmove_clock = obj.getattr(intern!(py, "halfmove_clock"))?.extract()?;
         let fullmove_number = obj.getattr(intern!(py, "fullmove_number"))?.extract()?;
         let piece_map: Bound<'a, PyDict> = obj
-            .call_method0(intern!(py, "piece_map"))
-            ?.downcast_into()
+            .call_method0(intern!(py, "piece_map"))?
+            .downcast_into()
             .map_err(PyErr::from)?;
         let piece_map = piece_map
             .iter()
@@ -487,7 +487,7 @@ impl Square {
     pub fn rotate(&self) -> Self {
         return Self {
             rank: 7 - self.rank,
-            file: self.file,  // flipping the board really
+            file: self.file, // flipping the board really
         };
     }
 }
@@ -557,20 +557,17 @@ pub fn get_board_from_moves(moves: &Vec<Move>) -> Board {
 
                     len += 1;
                     if len >= len_start {
-
                         let mut hasher = DefaultHasher::new();
                         vec.hash(&mut hasher);
                         let mkey = hasher.finish();
 
-                        GET_BOARD_CACHE.cache_get_or_set_with(
-                            mkey, || state.to_board()
-                        );
+                        GET_BOARD_CACHE.cache_get_or_set_with(mkey, || state.to_board());
                     }
                 }
 
-                GET_BOARD_CACHE.cache_get_or_set_with(
-                    full_key, || state.to_board()
-                ).clone()
+                GET_BOARD_CACHE
+                    .cache_get_or_set_with(full_key, || state.to_board())
+                    .clone()
             }
         }
     }
@@ -629,12 +626,8 @@ impl Board {
             array[Ix3(rank, file, (idx + offset).try_into().unwrap())] = 1;
         }
         // Repetition counters
-        array
-            .slice_mut(s![.., .., 12])
-            .fill(self.repetition2 as i8);
-        array
-            .slice_mut(s![.., .., 13])
-            .fill(self.repetition3 as i8);
+        array.slice_mut(s![.., .., 12]).fill(self.repetition2 as i8);
+        array.slice_mut(s![.., .., 13]).fill(self.repetition3 as i8);
 
         return array;
     }
@@ -672,10 +665,10 @@ impl BoardState {
             CHESS_MODULE
                 .bind(py)
                 .getattr("Board")
-                .and_then(|cls| cls.call1((fen, )))
+                .and_then(|cls| cls.call1((fen,)))
                 .and_then(|obj| obj.extract())
                 .ok()
-                .map(|o| Self { python_object: o})
+                .map(|o| Self { python_object: o })
         })
     }
 
@@ -730,9 +723,10 @@ impl BoardState {
 
     pub fn next(&mut self, mov: &Move) {
         Python::with_gil(|py| {
-            mov.into_pyobject(py).map_err(PyErr::from).and_then(
-                |m| self.python_object.call_method1(py, intern!(py, "push"), (m,))
-            )
+            mov.into_pyobject(py).map_err(PyErr::from).and_then(|m| {
+                self.python_object
+                    .call_method1(py, intern!(py, "push"), (m,))
+            })
         })
         .unwrap();
     }
@@ -740,8 +734,11 @@ impl BoardState {
     pub fn legal_moves(&self) -> Vec<Move> {
         Python::with_gil(|py| {
             let locals = [("board", &self.python_object)].into_py_dict(py)?;
-            py.eval(c_str!("list(board.legal_moves)"), None, Some(&locals)).unwrap().extract()
-        }).unwrap()
+            py.eval(c_str!("list(board.legal_moves)"), None, Some(&locals))
+                .unwrap()
+                .extract()
+        })
+        .unwrap()
     }
 
     pub fn move_stack(&self) -> Vec<Move> {
@@ -857,4 +854,30 @@ pub fn _encode(node: &ArcRefNode<Step>, state: &BoardState) -> (Array3<i8>, Arra
     let encoded_meta = current_board.encode_meta();
 
     (encoded_boards, encoded_meta)
+}
+
+pub fn post_process_distr(distr: Vec<f32>, argmax: bool, any: impl fmt::Debug) -> Vec<f32> {
+    if argmax {
+        let i: usize = distr
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0;
+        let mut distr = vec![0.; distr.len()];
+        distr[i] = 1.;
+        distr
+    } else {
+        let sum = distr.iter().sum::<f32>() + 1e-5;
+
+        if !sum.is_finite() {
+            println!("Warning: {:?}", distr);
+        }
+
+        if sum < 0.5 {
+            println!("Warning: all moves ({:?}) sums up to only {}", any, sum);
+        }
+
+        distr.iter().map(|x| x / sum).collect()
+    }
 }

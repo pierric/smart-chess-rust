@@ -1,6 +1,7 @@
+use crate::chess::post_process_distr;
 use crate::chess::{BoardState, Color, Move, Step, _encode};
 use crate::docarray::{DocListProto, DocProto};
-use crate::game::{post_process_distr, Game};
+use crate::game::Game;
 use crate::jina::data_request_proto::data_content_proto::Documents::Docs;
 use crate::jina::data_request_proto::DataContentProto;
 use crate::jina::jina_single_data_request_rpc_client::JinaSingleDataRequestRpcClient;
@@ -121,7 +122,7 @@ impl Game<BoardState> for ChessService {
                     .expect("score should be a float");
 
                 let moves_distr = _get_move_distribution(action, turn, &legal_moves);
-                let moves_distr = post_process_distr(moves_distr, argmax);
+                let moves_distr = post_process_distr(moves_distr, argmax, turn);
 
                 let next_steps = legal_moves
                     .into_iter()

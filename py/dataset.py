@@ -58,6 +58,8 @@ class ChessDataset(Dataset):
                 trace = json.load(f)
 
         self.outcome = _get_outcome(trace["outcome"])
+        if apply_mirror:
+            self.outcome = -self.outcome
 
         # steps in the trace files are [(move, score, [sibling moves])]
         # libsmartchess.encode_steps will use the [slibing_moves] to

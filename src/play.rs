@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use ort::execution_providers::*;
 use rand::distributions::Distribution;
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
@@ -7,6 +8,7 @@ use std::cell::{Ref, RefCell};
 use std::cmp::Eq;
 use std::path::Path;
 use std::sync::Arc;
+use std::{thread, time};
 use trace::Trace;
 use uci::Engine;
 
@@ -19,6 +21,7 @@ mod queenmoves;
 mod trace;
 mod underpromotions;
 
+use backends::onnx::ChessOnnx;
 use backends::torch::{ChessEP, ChessTS};
 
 #[allow(non_camel_case_types)]
@@ -124,6 +127,7 @@ impl Player for StockfishPlayer {
                     depth: depth + 1,
                     q_value: 0.,
                     num_act: num_act,
+                    uct: 0.,
                     parent: Some(parent.clone()),
                     children: Vec::new(),
                 })));
@@ -204,6 +208,33 @@ impl NNPlayer<ChessEP> {
     }
 }
 
+impl NNPlayer<ChessOnnx> {
+    fn load(
+        _device: &str,
+        checkpoint: &Path,
+        n_rollout: i32,
+        cpuct: f32,
+        temperature: f32,
+        temperature_switch: u32,
+    ) -> Self {
+        let session = ort::session::Session::builder()
+            .unwrap()
+            .commit_from_file(checkpoint)
+            .unwrap();
+        let chess = backends::onnx::ChessOnnx {
+            session: std::cell::RefCell::new(session),
+        };
+
+        NNPlayer {
+            game: chess,
+            n_rollout: n_rollout,
+            cpuct: cpuct,
+            temperature: temperature,
+            temperature_switch,
+        }
+    }
+}
+
 impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     fn bestmove(&self, cursor: &mut MctsCursor, state: &chess::BoardState) -> Option<usize> {
         mcts::mcts(
@@ -212,7 +243,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             &state,
             self.n_rollout,
             Some(self.cpuct),
-            true,
+            true, // absolutely important to generate some noise
         );
 
         let num_act_vec: Vec<i32> = cursor
@@ -259,13 +290,13 @@ fn step(
     trace: &mut Trace<chess::Move, chess::Outcome>,
 ) {
     let q_value = cursor.current().q_value;
-    let all_children: Vec<(chess::Move, i32, f32)> = cursor
+    let all_children: Vec<(chess::Move, i32, f32, f32)> = cursor
         .current()
         .children
         .iter()
         .map(|n: &mcts::ArcRefNode<_>| {
             let n: Ref<'_, _> = n.borrow();
-            (n.step.0.unwrap(), n.num_act, n.q_value)
+            (n.step.0.unwrap(), n.num_act, n.q_value, n.uct)
         })
         .collect();
 
@@ -300,6 +331,10 @@ fn play_loop<W, B>(
         if state.outcome().is_some() {
             break;
         }
+
+        // slow down slightly so that the GPU works not too hard
+        let dur = time::Duration::from_millis(200);
+        thread::sleep(dur);
     }
 }
 
@@ -331,6 +366,14 @@ fn load_checkpoint<P: AsRef<Path>>(
             temperature,
             temperature_switch,
         )) as Box<SomeNNPlayer>,
+        Some("onnx") => Box::new(NNPlayer::<ChessOnnx>::load(
+            device,
+            path,
+            n_rollout,
+            cpuct,
+            temperature,
+            temperature_switch,
+        )) as Box<SomeNNPlayer>,
         _ => panic!("--white-checkpoint should be a path to onnx or pt file."),
     }
 }
@@ -338,12 +381,22 @@ fn load_checkpoint<P: AsRef<Path>>(
 fn main() {
     // tracing_subscriber::fmt::init();
     unsafe {
-        // backtrace_on_stack_overflow::enable();
+        backtrace_on_stack_overflow::enable();
         //match libloading::Library::new("libtorchtrt.so") {
         //    Err(e) => println!("torch_tensorrt not found: {}", e),
         //    Ok(_) => (),
         //}
     }
+
+    ort::init()
+        .with_execution_providers([
+            CUDAExecutionProvider::default().build(),
+            ROCmExecutionProvider::default().build(),
+            MIGraphXExecutionProvider::default().build(),
+        ])
+        .commit()
+        .unwrap();
+
     let mut args = Args::parse();
 
     if args.black_checkpoint != "<not-specified>" {
@@ -359,6 +412,7 @@ fn main() {
         depth: 0,
         q_value: 0.,
         num_act: 0,
+        uct: 0.,
         parent: None,
         children: Vec::new(),
     });
