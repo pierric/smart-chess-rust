@@ -18,6 +18,7 @@ pub struct Node<T> {
     pub depth: u32,
     pub q_value: f32,
     pub num_act: i32,
+    pub uct: f32,
     pub parent: Option<WeakRefNode<T>>,
     pub children: Vec<ArcRefNode<T>>,
 }
@@ -210,6 +211,11 @@ where
                 println!("sqrt total: {:?}", sqrt_total_num_vis);
                 panic!("!!!! CHECK the values.");
             }
+
+            for (c, u) in children.iter().zip(uct_children.iter()) {
+                c.borrow_mut().uct = *u;
+            }
+
             let idx = find_max(uct_children.into_iter()).unwrap();
             &children[idx]
         };
@@ -265,6 +271,7 @@ pub fn mcts<G, S>(
                     depth: depth + 1,
                     q_value: 0.,
                     num_act: 0,
+                    uct: 0.,
                     parent: Some(Arc::downgrade(cur)),
                     children: Vec::new(),
                 }))

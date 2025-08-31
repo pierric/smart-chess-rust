@@ -3,13 +3,14 @@ use cached::proc_macro::cached;
 use cached::SizedCache;
 use clap::Parser;
 use pyo3::prelude::*;
+use std::cell::{Ref, RefCell};
 use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::BufReader;
 use std::sync::Arc;
-use std::cell::{RefCell, Ref};
 
+mod backends;
 mod chess;
 mod game;
 mod knightmoves;
@@ -17,7 +18,6 @@ mod mcts;
 mod queenmoves;
 mod trace;
 mod underpromotions;
-mod backends;
 
 #[allow(non_camel_case_types)]
 mod jina {
@@ -63,6 +63,7 @@ fn debug_step(chess: backends::py::ChessPy, filename: &str, target_step: usize) 
         depth: 0,
         q_value: 0.,
         num_act: 0,
+        uct: 0.,
         parent: None,
         children: Vec::new(),
     });
@@ -72,20 +73,24 @@ fn debug_step(chess: backends::py::ChessPy, filename: &str, target_step: usize) 
         let legal_moves = state.legal_moves();
         let choice = legal_moves.iter().position(|m| *m == mov).unwrap();
         {
-        let current = cursor.current();
-        let turn = current.step.1;
-        let depth = current.depth;
-        let parent = cursor.as_weak();
-        cursor.current_mut().children.extend(legal_moves.into_iter().map(|m| {
-                Arc::new(RefCell::new(mcts::Node {
-                    step: chess::Step(Some(m), !turn),
-                    depth: depth + 1,
-                    q_value: 0.,
-                    num_act: 0,
-                    parent: Some(parent.clone()),
-                    children: Vec::new(),
-                }))
-            }));
+            let current = cursor.current();
+            let turn = current.step.1;
+            let depth = current.depth;
+            let parent = cursor.as_weak();
+            cursor
+                .current_mut()
+                .children
+                .extend(legal_moves.into_iter().map(|m| {
+                    Arc::new(RefCell::new(mcts::Node {
+                        step: chess::Step(Some(m), !turn),
+                        depth: depth + 1,
+                        q_value: 0.,
+                        num_act: 0,
+                        uct: 0.,
+                        parent: Some(parent.clone()),
+                        children: Vec::new(),
+                    }))
+                }));
         }
         cursor.navigate_down(choice);
         game::State::advance(&mut state, &cursor.current().step);
@@ -99,25 +104,29 @@ fn debug_step(chess: backends::py::ChessPy, filename: &str, target_step: usize) 
         let current = cursor.current();
         let depth = current.depth;
         let parent = cursor.as_weak();
-        cursor.current_mut().children.extend(moves.into_iter().map(|m| {
-            let spec = m.as_array().unwrap();
-            let uci = spec[0].as_str().unwrap();
-            let mov = chess::Move::from_uci(uci);
-            let num = spec[1].as_i64().unwrap() as i32;
-            let turn = if target_step % 2 == 0 {
-                chess::Color::White
-            } else {
-                chess::Color::Black
-            };
-            Arc::new(RefCell::new(mcts::Node {
-                step: chess::Step(Some(mov), turn),
-                depth: depth + 1,
-                q_value: 0.,
-                num_act: num,
-                parent: Some(parent.clone()),
-                children: Vec::new(),
-            }))
-        }));
+        cursor
+            .current_mut()
+            .children
+            .extend(moves.into_iter().map(|m| {
+                let spec = m.as_array().unwrap();
+                let uci = spec[0].as_str().unwrap();
+                let mov = chess::Move::from_uci(uci);
+                let num = spec[1].as_i64().unwrap() as i32;
+                let turn = if target_step % 2 == 0 {
+                    chess::Color::White
+                } else {
+                    chess::Color::Black
+                };
+                Arc::new(RefCell::new(mcts::Node {
+                    step: chess::Step(Some(mov), turn),
+                    depth: depth + 1,
+                    q_value: 0.,
+                    num_act: num,
+                    uct: 0.,
+                    parent: Some(parent.clone()),
+                    children: Vec::new(),
+                }))
+            }));
     }
 
     let mov = mcts::step(&mut cursor, &mut state, 0.0).unwrap().0;
@@ -138,6 +147,7 @@ fn debug_trace(chess: backends::py::ChessPy, filename: &str, target_step: usize,
         depth: 0,
         q_value: 0.,
         num_act: 0,
+        uct: 0.,
         parent: None,
         children: Vec::new(),
     });
@@ -147,20 +157,24 @@ fn debug_trace(chess: backends::py::ChessPy, filename: &str, target_step: usize,
         let legal_moves = state.legal_moves();
         let choice = legal_moves.iter().position(|m| *m == mov).unwrap();
         {
-        let current = cursor.current();
-        let turn = current.step.1;
-        let depth = current.depth;
-        let parent = cursor.as_weak();
-        cursor.current_mut().children.extend(legal_moves.into_iter().map(|m| {
-            Arc::new(RefCell::new(mcts::Node {
-                step: chess::Step(Some(m), !turn),
-                depth: depth + 1,
-                q_value: 0.,
-                num_act: 0,
-                parent: Some(parent.clone()),
-                children: Vec::new(),
-            }))
-        }));
+            let current = cursor.current();
+            let turn = current.step.1;
+            let depth = current.depth;
+            let parent = cursor.as_weak();
+            cursor
+                .current_mut()
+                .children
+                .extend(legal_moves.into_iter().map(|m| {
+                    Arc::new(RefCell::new(mcts::Node {
+                        step: chess::Step(Some(m), !turn),
+                        depth: depth + 1,
+                        q_value: 0.,
+                        num_act: 0,
+                        uct: 0.,
+                        parent: Some(parent.clone()),
+                        children: Vec::new(),
+                    }))
+                }));
         }
         cursor.navigate_down(choice);
         game::State::advance(&mut state, &cursor.current().step);
@@ -216,7 +230,10 @@ fn debug_trace(chess: backends::py::ChessPy, filename: &str, target_step: usize,
 }
 
 #[allow(dead_code)]
-fn method1(cursor: &mut mcts::Cursor<(Option<chess::Move>, chess::Color)>, state: &chess::BoardState) {
+fn method1(
+    cursor: &mut mcts::Cursor<(Option<chess::Move>, chess::Color)>,
+    state: &chess::BoardState,
+) {
     use game::State;
 
     let mut history = chess::BoardHistory::new(8);
@@ -285,6 +302,7 @@ fn bench_to_board() {
         depth: 0,
         q_value: 0.,
         num_act: 0,
+        uct: 0.,
         parent: None,
         children: Vec::new(),
     });
@@ -298,21 +316,25 @@ fn bench_to_board() {
         let mov = chess::Move::from_uci(mov_uci);
 
         {
-        let current = cursor.current();
-        let depth = current.depth;
-        let parent = cursor.as_weak();
-        cursor.current_mut().children.push(Arc::new(RefCell::new(mcts::Node {
-            step: chess::Step(Some(mov), !turn),
-            depth: depth + 1,
-            q_value: 0.,
-            num_act: 0,
-            parent: Some(parent.clone()),
-            children: Vec::new(),
-        })));
-        turn = !turn;
+            let current = cursor.current();
+            let depth = current.depth;
+            let parent = cursor.as_weak();
+            cursor
+                .current_mut()
+                .children
+                .push(Arc::new(RefCell::new(mcts::Node {
+                    step: chess::Step(Some(mov), !turn),
+                    depth: depth + 1,
+                    q_value: 0.,
+                    num_act: 0,
+                    uct: 0.,
+                    parent: Some(parent.clone()),
+                    children: Vec::new(),
+                })));
+            turn = !turn;
 
-        // method1(cursor.current(), &state);
-        method2(&state);
+            // method1(cursor.current(), &state);
+            method2(&state);
         }
 
         cursor.navigate_down(0);

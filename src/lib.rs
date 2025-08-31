@@ -175,6 +175,7 @@ fn chess_play_new(
         depth: 0,
         q_value: 0.,
         num_act: 0,
+        uct: 0.,
         parent: None,
         children: Vec::new(),
     });
@@ -187,6 +188,7 @@ fn chess_play_new(
                 depth: cursor.current().depth + 1,
                 q_value: 0.,
                 num_act: 0,
+                uct: 0.,
                 parent: Some(cursor.as_weak()),
                 children: Vec::new(),
             }))

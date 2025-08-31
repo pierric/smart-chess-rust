@@ -1,14 +1,18 @@
+use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
-use serde::Serialize;
 
 pub struct Trace<M, O> {
-    steps: Vec<(Option<M>, f32, Vec<(M, i32, f32)>)>,
+    steps: Vec<(Option<M>, f32, Vec<(M, i32, f32, f32)>)>,
     outcome: Option<O>,
 }
 
 #[allow(dead_code)]
-impl<M, O> Trace<M, O> where M: Serialize, O: Serialize {
+impl<M, O> Trace<M, O>
+where
+    M: Serialize,
+    O: Serialize,
+{
     pub fn new() -> Self {
         Trace {
             steps: Vec::new(),
@@ -28,12 +32,7 @@ impl<M, O> Trace<M, O> where M: Serialize, O: Serialize {
     }
 
     #[allow(dead_code)]
-    pub fn push(
-        &mut self,
-        mov: Option<M>,
-        q_value: f32,
-        children: Vec<(M, i32, f32)>,
-    ) {
+    pub fn push(&mut self, mov: Option<M>, q_value: f32, children: Vec<(M, i32, f32, f32)>) {
         self.steps.push((mov, q_value, children));
     }
 

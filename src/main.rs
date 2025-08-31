@@ -1,6 +1,7 @@
 use clap::Parser;
 use ort::execution_providers::*;
 use std::path::Path;
+use std::{thread, time};
 
 mod backends;
 mod chess;
@@ -150,6 +151,7 @@ fn main() {
         depth: 0,
         q_value: 0.,
         num_act: 0,
+        uct: 0.,
         parent: None,
         children: Vec::new(),
     });
@@ -163,7 +165,7 @@ fn main() {
         };
 
         let rollout = match (args.rollout_factor, args.rollout_num) {
-            (Some(v), None) => i32::max(200, (state.legal_moves().len() as f32 * v) as i32),
+            (Some(v), None) => i32::min(300, (state.legal_moves().len() as f32 * v) as i32),
             (None, Some(v)) => v,
             (None, None) => 300,
             (Some(_), Some(_)) => panic!("both --rollout_factor and --rollout_num are specified."),
@@ -187,12 +189,12 @@ fn main() {
         let (q_value, num_act_children) = {
             let node = cursor.current();
             let q_value = node.q_value;
-            let num_act_children: Vec<(chess::Move, i32, f32)> = node
+            let num_act_children: Vec<(chess::Move, i32, f32, f32)> = node
                 .children
                 .iter()
                 .map(|n| {
                     let n = n.borrow();
-                    (n.step.0.unwrap(), n.num_act, n.q_value)
+                    (n.step.0.unwrap(), n.num_act, n.q_value, n.uct)
                 })
                 .collect();
             (q_value, num_act_children)
@@ -215,6 +217,10 @@ fn main() {
                 break;
             }
         }
+
+        // slow down slightly so that the GPU works not too hard
+        let dur = time::Duration::from_millis(400);
+        thread::sleep(dur);
     }
 
     if outcome.is_some() {
