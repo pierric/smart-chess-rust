@@ -597,7 +597,7 @@ impl Board {
             repetition2: self.repetition2,
             repetition3: self.repetition3,
             halfmove_clock: self.halfmove_clock,
-            fullmove_number: self.fullmove_number,
+            fullmove_number: self.fullmove_number + if self.turn == Color::White { 1 } else { 0 },
             has_kingside_castling_rights: swap(self.has_kingside_castling_rights),
             has_queenside_castling_rights: swap(self.has_queenside_castling_rights),
         };
