@@ -153,13 +153,18 @@ def unlinking(tmpfile):
         os.unlink(path)
 
 
-def export_onnx(model, *, inp_shape, device, output, fp16):
-    x = torch.randn(1, *inp_shape, dtype=torch.float32).to(device=device)
+def export_onnx(model, *, inp_shapes, device, output, fp16):
+    inp1 = torch.randn(1, *inp_shapes[0], dtype=torch.float32).to(device=device)
+    inp2 = torch.randn(1, *inp_shapes[1], dtype=torch.float32).to(device=device)
 
     with unlinking(tempfile.mkstemp(suffix=".onnx")) as tmp:
         with torch.no_grad():
             torch.onnx.export(
-                model, x, tmp, input_names=["inp"], output_names=["policy", "value"]
+                model,
+                (inp1, inp2),
+                tmp,
+                input_names=["boards", "meta"],
+                output_names=["policy", "value"],
             )
 
         if not fp16:
@@ -173,6 +178,10 @@ def export_onnx(model, *, inp_shape, device, output, fp16):
 
         model = onnx.load(tmp)
         model = auto_convert_mixed_precision(
-            model, {"inp": x.cpu().numpy()}, rtol=0.01, atol=0.001, keep_io_types=True
+            model,
+            {"boards": inp1.cpu().numpy(), "meta": inp2.cpu().numpy()},
+            rtol=0.01,
+            atol=0.001,
+            keep_io_types=True,
         )
         onnx.save(model, output)

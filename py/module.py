@@ -18,12 +18,11 @@ class ResBlock(torch.nn.Module):
         self.bn2 = torch.nn.BatchNorm2d(planes)
 
     def forward(self, x):
-        residual = x
         out = self.conv1(x)
         out = torch.relu(self.bn1(out))
         out = self.conv2(out)
         out = self.bn2(out)
-        out = out + residual
+        out = out + x
         out = torch.relu(out)
         return out
 
@@ -45,13 +44,12 @@ class ResBlockSE(torch.nn.Module):
         )
 
     def forward(self, x):
-        residual = x
         out = self.conv1(x)
         out = torch.relu(self.bn1(out))
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.se(out)
-        out = out + residual
+        out = out + x
         out = torch.relu(out)
         return out
 
@@ -104,19 +102,23 @@ class PolicyHead(torch.nn.Module):
 class ValueHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
-        self.model = torch.nn.Sequential(
+        self.conv = torch.nn.Sequential(
             torch.nn.Conv2d(din, 32, kernel_size=1, bias=False),
             torch.nn.BatchNorm2d(32),
             torch.nn.Flatten(),
             torch.nn.ReLU(),
-            torch.nn.Linear(8 * 8 * 32, 128),
+        )
+        self.ffn = torch.nn.Sequential(
+            torch.nn.Linear(8 * 8 * 32 + 7, 128),
             torch.nn.ReLU(),
             torch.nn.Linear(128, 1),
             torch.nn.Tanh(),
         )
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, x, meta):
+        x = self.conv(x)
+        x = torch.cat((x, meta), dim=1)
+        return self.ffn(x)
 
 
 class ChessModule(torch.nn.Module):
@@ -148,13 +150,9 @@ class ChessModule(torch.nn.Module):
         self.value_head = ValueHead(256)
         self.policy_head = PolicyHead(256)
 
-    def forward(self, inp):
-        # inp shape bx119x8x8
-        # dim 0:112 are encoded boards
-        # dim 112:119 are the meta data
-        meta = inp[:, 112:, 0, 0]
-        inp = inp[:, :112, ...]
-
+    def forward(self, inp, meta):
+        # inp shape bx112x8x8
+        # meta shape bx7
         x = self.conv_block(inp)
 
         for block in self.res_blocks:
@@ -162,7 +160,7 @@ class ChessModule(torch.nn.Module):
 
         v1 = self.policy_head(x)
 
-        v2 = self.value_head(x)
+        v2 = self.value_head(x, meta)
         turn = meta[:, 0].unsqueeze(-1)
         v2 = v2 * (turn * 2 - 1)
 

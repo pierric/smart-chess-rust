@@ -34,7 +34,8 @@ def main():
         inference=True,
         compile=False,
     )
-    inp_shape = (119, 8, 8)
+    shape1 = (112, 8, 8)
+    shape2 = (7,)
 
     routing = {
         ("simple", "pt"): lambda: export.export,
@@ -49,7 +50,10 @@ def main():
     stamm, _ = os.path.splitext(args.checkpoint)
     func = routing[(args.mode, args.format)]()
     func(
-        model, inp_shape=inp_shape, device=args.device, output=f"{stamm}.{args.format}"
+        model,
+        inp_shapes=[shape1, shape2],
+        device=args.device,
+        output=f"{stamm}.{args.format}",
     )
 
 
