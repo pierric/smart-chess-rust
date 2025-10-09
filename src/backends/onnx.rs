@@ -61,18 +61,14 @@ fn call_onnx_model(
     turn: Color,
     steps: &Vec<Move>,
 ) -> ort::Result<(Vec<f32>, f32)> {
-    let boards = boards.map(|v| *v as f32);
-    let meta_f32 = meta.map(|v| *v as f32);
-    let meta_bc = meta_f32.broadcast([64, 7]).unwrap();
-    let meta_rs = meta_bc.to_shape([8, 8, 7]).unwrap();
-    let cat = ndarray::concatenate![Axis(2), boards, meta_rs];
-    let inp = cat
-        .view()
+    let boards = boards
+        .map(|v| *v as f32)
         .permuted_axes([2, 0, 1])
-        .insert_axis(Axis(0))
-        .to_owned();
-    let inp = ort::value::Tensor::from_array(inp)?;
-    let out = session.run(ort::inputs!["inp" => inp])?;
+        .insert_axis(Axis(0));
+    let meta = meta.map(|v| *v as f32);
+    let inp1 = ort::value::Tensor::from_array(boards)?;
+    let inp2 = ort::value::Tensor::from_array(meta.insert_axis(Axis(0)))?;
+    let out = session.run(ort::inputs!["boards" => inp1, "meta" => inp2])?;
 
     let full_distr: ort::value::TensorRef<f32> = out[0].downcast_ref()?;
     let score: ort::value::TensorRef<f32> = out[1].downcast_ref()?;
