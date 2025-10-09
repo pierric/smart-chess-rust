@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 from multiprocessing import Pool
 from functools import partial
+from pandas import option_context
 from torch.optim import optimizer
 from tqdm import tqdm
 
@@ -29,29 +30,14 @@ class ChessLightningModule(L.LightningModule):
         self.config = config
 
         model_conf = config["model_conf"]
-        if isinstance(model_conf, TransferConf):
-            self.teacher = load_model(
-                n_res_blocks=model_conf.teacher,
-                checkpoint=config["last_ckpt"],
-                inference=True,
-                compile=False,
-            )
-            self.model = load_model(
-                n_res_blocks=model_conf.student,
-                inference=False,
-                compile=False,
-            )
-
-        else:
-            assert isinstance(model_conf, int)
-            self.model = load_model(
-                n_res_blocks=model_conf,
-                checkpoint=config["last_ckpt"],
-                inference=False,
-                compile=False,
-                omit=config.get("omit"),
-            )
-            self.teacher = None
+        assert isinstance(model_conf, int)
+        self.model = load_model(
+            n_res_blocks=model_conf,
+            checkpoint=config["last_ckpt"],
+            inference=False,
+            compile=False,
+            omit=config.get("omit"),
+        )
 
         freeze_prefix = []
         if config["freeze_backbone"]:
@@ -84,32 +70,11 @@ class ChessLightningModule(L.LightningModule):
         return F.mse_loss(value_pred, value_gt, reduction="mean")
 
     def training_step(self, batch, batch_idx):
-        boards, dist, outcome = batch
+        boards, meta, dist, outcome = batch
 
-        if not isinstance(self.config["model_conf"], TransferConf):
-            log_dist_pred, value_pred = self.model(boards)
-            loss1 = self.compute_loss1(log_dist_pred, dist)
-            loss2 = self.compute_loss2(value_pred, outcome)
-
-        else:
-            batch_size_supervised = self.config["train_batch_size"] // 2
-
-            boards_supervised = boards[:batch_size_supervised]
-            dist_supervised = dist[:batch_size_supervised]
-            outcome_supervised = outcome[:batch_size_supervised]
-
-            boards_unsupervised = boards[batch_size_supervised:]
-            dist_unsupervised, outcome_unsupervised = self.teacher(boards_unsupervised)
-            dist_unsupervised = torch.exp(dist_unsupervised)
-
-            dist_student = torch.cat((dist_supervised, dist_unsupervised), dim=0)
-            outcome_student = torch.cat(
-                (outcome_supervised, outcome_unsupervised), dim=0
-            )
-
-            log_dist_pred, value_pred = self.model(boards)
-            loss1 = self.compute_loss1(log_dist_pred, dist_student)
-            loss2 = self.compute_loss2(value_pred, outcome_student)
+        log_dist_pred, value_pred = self.model(boards, meta)
+        loss1 = self.compute_loss1(log_dist_pred, dist)
+        loss2 = self.compute_loss2(value_pred, outcome)
 
         self.log_dict(
             {
@@ -123,8 +88,8 @@ class ChessLightningModule(L.LightningModule):
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         prefix = "val_syn" if dataloader_idx == 0 else "val_real"
-        boards, dist, outcome = batch
-        log_dist_pred, value_pred = self.model(boards)
+        boards, meta, dist, outcome = batch
+        log_dist_pred, value_pred = self.model(boards, meta)
         loss1 = self.compute_loss1(log_dist_pred, dist)
         loss2 = self.compute_loss2(value_pred, outcome)
 
@@ -233,27 +198,10 @@ class ModelCheckpointAtEpochEnd(Callback):
         torch.save(m.state_dict(), path)
 
 
-@dataclass
-class TransferConf:
-    student: int
-    teacher: int
-
-    @classmethod
-    def parse(cls, conf: Optional[str]) -> Optional["TransferConf"]:
-        if conf is None:
-            return None
-
-        ts = conf.split(":")
-        if len(ts) != 2:
-            return None
-
-        return cls(int(ts[1]), int(ts[0]))
-
-
-def _make_dataset(path):
+def _make_dataset(path, start_step=0):
     return [
-        ChessDataset(path, False),
-        # ChessDataset(path, True),
+        ChessDataset(path, False, start_step=start_step),
+        # ChessDataset(path, True, start_step=start_step),
     ]
 
 
@@ -291,6 +239,7 @@ def main():
 
     parser.add_argument("--omit", type=str, nargs="*")
     parser.add_argument("--freeze", type=str, nargs="*")
+    parser.add_argument("--start-step", type=int, default=0)
     args = parser.parse_args()
 
     compile_model = not args.no_compile
@@ -313,7 +262,10 @@ def main():
     with Pool(12) as p:
         dss = sum(
             tqdm(
-                p.imap(_make_dataset, args.trace_file_for_train),
+                p.imap(
+                    partial(_make_dataset, start_step=args.start_step),
+                    args.trace_file_for_train,
+                ),
                 total=len(args.trace_file_for_train),
             ),
             [],
@@ -374,11 +326,7 @@ def main():
         save_every_k=args.save_every_k,
         loss_weight=args.loss_weight,
         compile_model=compile_model,
-        model_conf=(
-            None
-            if args.model_conf is None
-            else TransferConf.parse(args.model_conf) or int(args.model_conf)
-        ),
+        model_conf=(None if args.model_conf is None else int(args.model_conf)),
         freeze_backbone=args.freeze_backbone,
         lr_scheduler=args.lr_scheduler,
         weight_decay=args.weight_decay,
