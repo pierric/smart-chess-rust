@@ -186,13 +186,10 @@ class ChessModule(torch.nn.Module):
         v1 = self.policy_head(latent)
 
         v2 = self.value_head(latent, meta)
-        # turn = meta[:, 0].unsqueeze(-1)
-        # v2 = v2 * (turn * 2 - 1)
+        turn = meta[:, 0].unsqueeze(-1)
+        v2 = v2 * (turn * 2 - 1)
 
-        return (
-            v1,
-            v2,
-        )
+        return (v1, v2)
 
 
 def _load_ckpt(model, checkpoint, omit=None):

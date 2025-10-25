@@ -100,6 +100,12 @@ class ChessLightningModule(L.LightningModule):
                 "loss": loss1 + self.config["loss_weight"] * loss2,
                 "w2": torch.nn.utils.get_total_norm(self.parameters()),
                 "gr": gr,
+                "w2_vh": torch.nn.utils.get_total_norm(
+                    self.model.value_head.parameters()
+                ),
+                "w2_ph": torch.nn.utils.get_total_norm(
+                    self.model.policy_head.parameters()
+                ),
             }
         )
         return loss1 + self.config["loss_weight"] * loss2
