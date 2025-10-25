@@ -76,12 +76,30 @@ class ChessLightningModule(L.LightningModule):
         loss1 = self.compute_loss1(log_dist_pred, dist)
         loss2 = self.compute_loss2(value_pred, outcome)
 
+        g1 = torch.autograd.grad(
+            loss1,
+            self.model.res_blocks[-1].parameters(),
+            allow_unused=True,
+            retain_graph=True,
+            create_graph=True,
+        )[0]
+        g2 = torch.autograd.grad(
+            loss2,
+            self.model.res_blocks[-1].parameters(),
+            allow_unused=True,
+            retain_graph=True,
+            create_graph=True,
+        )[0]
+
+        gr = (torch.norm(g1) / torch.norm(g2)).detach().cpu().item()
+
         self.log_dict(
             {
                 "loss1": loss1,
                 "loss2": loss2,
                 "loss": loss1 + self.config["loss_weight"] * loss2,
                 "w2": torch.nn.utils.get_total_norm(self.parameters()),
+                "gr": gr,
             }
         )
         return loss1 + self.config["loss_weight"] * loss2
@@ -131,7 +149,13 @@ class ChessLightningModule(L.LightningModule):
         if self.config["lr_scheduler"] == "constant":
             return optimizer
 
-        from torch.optim.lr_scheduler import OneCycleLR, ExponentialLR
+        from torch.optim.lr_scheduler import (
+            OneCycleLR,
+            ExponentialLR,
+            CosineAnnealingLR,
+            LinearLR,
+            ChainedScheduler,
+        )
 
         sched = self.config["lr_scheduler"]
         if sched == "exponential":
@@ -148,6 +172,17 @@ class ChessLightningModule(L.LightningModule):
                 total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
             )
             interval = "step"
+
+        elif sched == "cosine":
+            schedulers = [
+                LinearLR(optimizer=optimizer, total_iters=1),
+                CosineAnnealingLR(
+                    optimizer=optimizer,
+                    T_max=self.config["epochs"],
+                ),
+            ]
+            scheduler = ChainedScheduler(schedulers, optimizer)
+            interval = "epoch"
 
         else:
             raise RuntimeError("unknown scheduler: " + sched)
@@ -227,7 +262,7 @@ def main():
     parser.add_argument(
         "--lr-scheduler",
         type=str,
-        choices=["constant", "exponential", "onecycle"],
+        choices=["constant", "exponential", "onecycle", "cosine"],
         default="constant",
     )
     parser.add_argument("--freeze-backbone", action="store_true")
@@ -352,7 +387,7 @@ def main():
         callbacks=lightning_checkpoints,
         max_epochs=config["max_epochs"],
         log_every_n_steps=10,
-        # precision="bf16-mixed",
+        # precision="16-mixed",
         # val_check_interval=20,
         **extra_params,
     )
