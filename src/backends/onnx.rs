@@ -73,7 +73,7 @@ fn call_onnx_model(
     let full_distr: ort::value::TensorRef<f32> = out[0].downcast_ref()?;
     let score: ort::value::TensorRef<f32> = out[1].downcast_ref()?;
     let score = *(score.index([0, 0]));
-    let score = score * (if turn == Color::Black { -1. } else { 1. });
+    //let score = score * (if turn == Color::Black { -1. } else { 1. });
 
     // rotate if the next move is black
     let moves_distr: Vec<f32> = steps
