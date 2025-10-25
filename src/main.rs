@@ -1,7 +1,7 @@
 use clap::Parser;
 use ort::execution_providers::*;
 use std::path::Path;
-use std::{thread, time};
+// use std::{thread, time};
 
 mod backends;
 mod chess;
@@ -219,8 +219,8 @@ fn main() {
         }
 
         // slow down slightly so that the GPU works not too hard
-        let dur = time::Duration::from_millis(400);
-        thread::sleep(dur);
+        // let dur = time::Duration::from_millis(400);
+        // thread::sleep(dur);
     }
 
     if outcome.is_some() {
