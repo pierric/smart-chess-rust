@@ -1,3 +1,4 @@
+use game::Game;
 use ndarray::{Array1, Ix1};
 use numpy::array::{PyArray1, PyArray3};
 use pyo3::prelude::*;
@@ -135,7 +136,7 @@ fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyOb
 
 #[allow(dead_code)]
 struct ChessEngineState {
-    chess: RefCell<backends::torch::ChessEP>,
+    chess: RefCell<backends::onnx::ChessOnnx>,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
@@ -152,7 +153,7 @@ fn chess_play_new(
     device: &str,
     initial_moves: Vec<chess::Move>,
 ) -> PyResult<PyObject> {
-    let device = match device {
+    let _device = match device {
         "cpu" => tch::Device::Cpu,
         "cuda" => tch::Device::Cuda(0),
         "mps" => tch::Device::Mps,
@@ -163,9 +164,16 @@ fn chess_play_new(
     //    model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
     //    device: device,
     //};
-    let chess = backends::torch::ChessEP {
-        model: aotinductor::ModelPackage::new(checkpoint).unwrap(),
-        device: device,
+    //let chess = backends::torch::ChessEP {
+    //    model: aotinductor::ModelPackage::new(checkpoint).unwrap(),
+    //    device: device,
+    //};
+    let session = ort::session::Session::builder()
+        .unwrap()
+        .commit_from_file(checkpoint)
+        .unwrap();
+    let chess = backends::onnx::ChessOnnx {
+        session: std::cell::RefCell::new(session),
     };
 
     let mut board = chess::BoardState::new();
@@ -212,7 +220,7 @@ fn chess_play_new(
 }
 
 #[pyfunction]
-fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
+fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32, noise: bool) {
     Python::with_gil(|py| {
         let state = unsafe {
             state
@@ -226,7 +234,7 @@ fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32) {
             &state.board,
             rollout,
             Some(cpuct),
-            true,
+            noise,
         );
     })
 }
@@ -242,6 +250,33 @@ fn chess_play_step(state: Py<PyCapsule>, temp: f32) {
         };
         let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
         mcts::step(&mut *cursor, &mut *board, temp);
+    })
+}
+
+#[pyfunction]
+fn chess_play_apply_move(state: Py<PyCapsule>, mov: chess::Move) {
+    Python::with_gil(|py| {
+        let state = unsafe {
+            state
+                .bind(py)
+                .reference::<RefCell<ChessEngineState>>()
+                .borrow_mut()
+        };
+        let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
+        board.next(&mov);
+        let child = {
+            Arc::new(RefCell::new(mcts::Node {
+                step: chess::Step(Some(mov), board.turn()),
+                depth: cursor.current().depth + 1,
+                q_value: 0.,
+                num_act: 0,
+                uct: 0.,
+                parent: Some(cursor.as_weak()),
+                children: Vec::new(),
+            }))
+        };
+        cursor.current_mut().children = vec![child];
+        cursor.navigate_down(0);
     })
 }
 
@@ -305,10 +340,7 @@ fn chess_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-fn chess_play_inference(
-    state: Py<PyCapsule>,
-    full_distr: bool,
-) -> PyResult<(PyObject, PyObject, PyObject)> {
+fn chess_play_inference(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject)> {
     Python::with_gil(|py| {
         let state = unsafe {
             state
@@ -317,17 +349,35 @@ fn chess_play_inference(
                 .borrow()
         };
 
-        let (steps, prior, outcome) = backends::torch::chess_tch_predict(
-            &*state.chess.borrow(),
-            &state.cursor.arc(),
-            &state.board,
-            false,
-            full_distr,
-        );
+        let (steps, prior, outcome) =
+            state
+                .chess
+                .borrow()
+                .predict(&state.cursor.arc(), &state.board, false);
         let steps = steps.into_pyobject(py)?.unbind().into_any();
         let prior = prior.into_pyobject(py)?.unbind().into_any();
         let outcome = outcome.into_pyobject(py)?.unbind().into_any();
         Ok((steps, prior, outcome))
+    })
+}
+
+#[pyfunction]
+fn chess_play_encode(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject)> {
+    Python::with_gil(|py| {
+        let state = unsafe {
+            state
+                .bind(py)
+                .reference::<RefCell<ChessEngineState>>()
+                .borrow()
+        };
+        use crate::chess::_encode;
+        let (encoded_boards, encoded_meta) = _encode(&state.cursor.arc(), &state.board);
+        let encoded_boards: Bound<'_, PyArray3<i8>> = PyArray3::from_array(py, &encoded_boards);
+        let encoded_meta: Bound<'_, PyArray1<i32>> = PyArray1::from_array(py, &encoded_meta);
+        Ok((
+            encoded_boards.unbind().into_any(),
+            encoded_meta.unbind().into_any(),
+        ))
     })
 }
 
@@ -345,5 +395,7 @@ fn libsmartchess(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(chess_play_inspect, m)?)?;
     m.add_function(wrap_pyfunction!(chess_play_dump_search_tree, m)?)?;
     m.add_function(wrap_pyfunction!(chess_play_inference, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_apply_move, m)?)?;
+    m.add_function(wrap_pyfunction!(chess_play_encode, m)?)?;
     Ok(())
 }
