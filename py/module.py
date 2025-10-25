@@ -102,14 +102,15 @@ class PolicyHead(torch.nn.Module):
 class ValueHead(torch.nn.Module):
     def __init__(self, din):
         super().__init__()
+        nf = 256
         self.conv = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 32, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(32),
-            torch.nn.Flatten(),
+            torch.nn.Conv2d(din, nf, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(nf),
             torch.nn.ReLU(),
+            torch.nn.Flatten(),
         )
         self.ffn = torch.nn.Sequential(
-            torch.nn.Linear(8 * 8 * 32 + 7, 128),
+            torch.nn.Linear(8 * 8 * nf + 7, 128),
             torch.nn.ReLU(),
             torch.nn.Linear(128, 1),
             torch.nn.Tanh(),
@@ -117,8 +118,29 @@ class ValueHead(torch.nn.Module):
 
     def forward(self, x, meta):
         x = self.conv(x)
+        # meta = meta.to(x.dtype)
         x = torch.cat((x, meta), dim=1)
         return self.ffn(x)
+
+
+class ValueHeadOld(torch.nn.Module):
+    def __init__(self, din):
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Conv2d(256, 64, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(64),
+            # torch.nn.Dropout2d(p=0.5),
+            torch.nn.AvgPool2d(kernel_size=8),
+            torch.nn.Flatten(),
+            # torch.nn.Dropout(p=0.5),
+            torch.nn.Linear(64, 1),
+            # torch.nn.ReLU(inplace=True),
+            # torch.nn.Linear(128, 1),
+            torch.nn.Tanh(),
+        )
+
+    def forward(self, x, meta):
+        return self.model(x)
 
 
 class ChessModule(torch.nn.Module):
@@ -141,6 +163,7 @@ class ChessModule(torch.nn.Module):
 
         self.res_blocks = torch.nn.ModuleList(
             [ResBlockSE() for _ in range(n_res_blocks)]
+            # [ResBlock() for _ in range(n_res_blocks)]
         )
 
         # mid = 512
@@ -158,13 +181,18 @@ class ChessModule(torch.nn.Module):
         for block in self.res_blocks:
             x = block(x)
 
-        v1 = self.policy_head(x)
+        latent = x
 
-        v2 = self.value_head(x, meta)
-        turn = meta[:, 0].unsqueeze(-1)
-        v2 = v2 * (turn * 2 - 1)
+        v1 = self.policy_head(latent)
 
-        return v1, v2
+        v2 = self.value_head(latent, meta)
+        # turn = meta[:, 0].unsqueeze(-1)
+        # v2 = v2 * (turn * 2 - 1)
+
+        return (
+            v1,
+            v2,
+        )
 
 
 def _load_ckpt(model, checkpoint, omit=None):
@@ -227,12 +255,12 @@ def load_model(
 
 def _wrapup_py(model):
 
-    def inference(inp):
+    def inference(*inp):
         with torch.no_grad():
             with torch.autocast(
                 device_type="cuda", dtype=torch.bfloat16, cache_enabled=False
             ):
-                return model(inp)
+                return model(*inp)
 
     return inference
 
