@@ -1,15 +1,18 @@
 use clap::{Parser, ValueEnum};
+use ort::execution_providers::*;
 use rand::distributions::Distribution;
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
 use std::boxed::Box;
+use std::cell::{Ref, RefCell};
 use std::cmp::Eq;
 use std::path::Path;
 use std::sync::Arc;
-use std::cell::{RefCell, Ref};
+use std::{thread, time};
 use trace::Trace;
 use uci::Engine;
 
+mod backends;
 mod chess;
 mod game;
 mod knightmoves;
@@ -17,9 +20,9 @@ mod mcts;
 mod queenmoves;
 mod trace;
 mod underpromotions;
-mod backends;
 
-use backends::torch::{ChessTS, ChessEP};
+use backends::onnx::ChessOnnx;
+use backends::torch::{ChessEP, ChessTS};
 
 #[allow(non_camel_case_types)]
 mod jina {
@@ -124,6 +127,7 @@ impl Player for StockfishPlayer {
                     depth: depth + 1,
                     q_value: 0.,
                     num_act: num_act,
+                    uct: 0.,
                     parent: Some(parent.clone()),
                     children: Vec::new(),
                 })));
@@ -144,7 +148,14 @@ struct NNPlayer<G: game::Game<chess::BoardState>> {
 }
 
 impl NNPlayer<ChessTS> {
-    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32, temperature_switch: u32) -> Self {
+    fn load(
+        device: &str,
+        checkpoint: &Path,
+        n_rollout: i32,
+        cpuct: f32,
+        temperature: f32,
+        temperature_switch: u32,
+    ) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
@@ -168,7 +179,14 @@ impl NNPlayer<ChessTS> {
 }
 
 impl NNPlayer<ChessEP> {
-    fn load(device: &str, checkpoint: &Path, n_rollout: i32, cpuct: f32, temperature: f32, temperature_switch: u32) -> Self {
+    fn load(
+        device: &str,
+        checkpoint: &Path,
+        n_rollout: i32,
+        cpuct: f32,
+        temperature: f32,
+        temperature_switch: u32,
+    ) -> Self {
         let device = match device {
             "cpu" => tch::Device::Cpu,
             "cuda" => tch::Device::Cuda(0),
@@ -188,7 +206,33 @@ impl NNPlayer<ChessEP> {
             temperature_switch,
         }
     }
+}
 
+impl NNPlayer<ChessOnnx> {
+    fn load(
+        _device: &str,
+        checkpoint: &Path,
+        n_rollout: i32,
+        cpuct: f32,
+        temperature: f32,
+        temperature_switch: u32,
+    ) -> Self {
+        let session = ort::session::Session::builder()
+            .unwrap()
+            .commit_from_file(checkpoint)
+            .unwrap();
+        let chess = backends::onnx::ChessOnnx {
+            session: std::cell::RefCell::new(session),
+        };
+
+        NNPlayer {
+            game: chess,
+            n_rollout: n_rollout,
+            cpuct: cpuct,
+            temperature: temperature,
+            temperature_switch,
+        }
+    }
 }
 
 impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
@@ -199,7 +243,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             &state,
             self.n_rollout,
             Some(self.cpuct),
-            true,
+            true, // absolutely important to generate some noise
         );
 
         let num_act_vec: Vec<i32> = cursor
@@ -212,7 +256,11 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             return None;
         }
 
-        let temperature = if cursor.current().depth < self.temperature_switch {1.0} else {self.temperature};
+        let temperature = if cursor.current().depth < self.temperature_switch {
+            1.0
+        } else {
+            self.temperature
+        };
 
         let choice: usize = if temperature == 0.0 {
             let max = num_act_vec.iter().max().unwrap();
@@ -235,15 +283,20 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
     }
 }
 
-fn step(choice: usize, cursor: &mut MctsCursor, state: &mut chess::BoardState, trace: &mut Trace<chess::Move, chess::Outcome>) {
+fn step(
+    choice: usize,
+    cursor: &mut MctsCursor,
+    state: &mut chess::BoardState,
+    trace: &mut Trace<chess::Move, chess::Outcome>,
+) {
     let q_value = cursor.current().q_value;
-    let all_children: Vec<(chess::Move, i32, f32)> = cursor
+    let all_children: Vec<(chess::Move, i32, f32, f32)> = cursor
         .current()
         .children
         .iter()
         .map(|n: &mcts::ArcRefNode<_>| {
             let n: Ref<'_, _> = n.borrow();
-            (n.step.0.unwrap(), n.num_act, n.q_value)
+            (n.step.0.unwrap(), n.num_act, n.q_value, n.uct)
         })
         .collect();
 
@@ -268,31 +321,20 @@ fn play_loop<W, B>(
     W: Player + ?Sized,
     B: Player + ?Sized,
 {
-    let mut count = 0;
-
-    loop {
-        let next = white.bestmove(cursor, state);
-        if next.is_none() {
-            break;
-        }
+    for ind in 0..200 {
+        let next = if ind % 2 == 0 {
+            white.bestmove(cursor, state)
+        } else {
+            black.bestmove(cursor, state)
+        };
         step(next.unwrap(), cursor, state, trace);
         if state.outcome().is_some() {
             break;
         }
 
-        let next = black.bestmove(cursor, state);
-        if next.is_none() {
-            break;
-        }
-        step(next.unwrap(), cursor, state, trace);
-        if state.outcome().is_some() {
-            break;
-        }
-
-        count += 1;
-        if count >= 150 {
-            break;
-        }
+        // slow down slightly so that the GPU works not too hard
+        let dur = time::Duration::from_millis(200);
+        thread::sleep(dur);
     }
 }
 
@@ -324,12 +366,20 @@ fn load_checkpoint<P: AsRef<Path>>(
             temperature,
             temperature_switch,
         )) as Box<SomeNNPlayer>,
+        Some("onnx") => Box::new(NNPlayer::<ChessOnnx>::load(
+            device,
+            path,
+            n_rollout,
+            cpuct,
+            temperature,
+            temperature_switch,
+        )) as Box<SomeNNPlayer>,
         _ => panic!("--white-checkpoint should be a path to onnx or pt file."),
     }
 }
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    // tracing_subscriber::fmt::init();
     unsafe {
         backtrace_on_stack_overflow::enable();
         //match libloading::Library::new("libtorchtrt.so") {
@@ -337,6 +387,16 @@ fn main() {
         //    Ok(_) => (),
         //}
     }
+
+    ort::init()
+        .with_execution_providers([
+            CUDAExecutionProvider::default().build(),
+            ROCmExecutionProvider::default().build(),
+            MIGraphXExecutionProvider::default().build(),
+        ])
+        .commit()
+        .unwrap();
+
     let mut args = Args::parse();
 
     if args.black_checkpoint != "<not-specified>" {
@@ -352,6 +412,7 @@ fn main() {
         depth: 0,
         q_value: 0.,
         num_act: 0,
+        uct: 0.,
         parent: None,
         children: Vec::new(),
     });

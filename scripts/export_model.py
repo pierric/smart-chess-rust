@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--checkpoint", type=str)
     parser.add_argument(
-        "-m", "--mode", choices=["bf16", "amp", "ptq", "simple"], default="simple"
+        "-m", "--mode", choices=["bf16", "fp16", "ptq", "simple"], default="simple"
     )
     parser.add_argument("-f", "--format", choices=["onnx", "pt", "pt2"], default="pt2")
     parser.add_argument("-n", "--n-res-blocks", type=int, required=False)
@@ -34,20 +34,26 @@ def main():
         inference=True,
         compile=False,
     )
-    inp_shape = (119, 8, 8)
+    shape1 = (112, 8, 8)
+    shape2 = (7,)
 
     routing = {
         ("simple", "pt"): lambda: export.export,
-        ("amp", "pt"): lambda: export.export_fp16,
+        ("fp16", "pt"): lambda: export.export_fp16,
         ("bf16", "pt"): lambda: export.export_pt_bf16,
         ("bf16", "pt2"): lambda: export.export_pt2_bf16,
+        ("simple", "onnx"): lambda: partial(export.export_onnx, fp16=False),
+        ("fp16", "onnx"): lambda: partial(export.export_onnx, fp16=True),
         ("ptq", "onnx"): lambda: partial(export.export_ptq, calib=args.calib),
     }
 
     stamm, _ = os.path.splitext(args.checkpoint)
     func = routing[(args.mode, args.format)]()
     func(
-        model, inp_shape=inp_shape, device=args.device, output=f"{stamm}.{args.format}"
+        model,
+        inp_shapes=[shape1, shape2],
+        device=args.device,
+        output=f"{stamm}.{args.format}",
     )
 
 

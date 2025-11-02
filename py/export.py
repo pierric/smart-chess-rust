@@ -1,3 +1,7 @@
+import tempfile
+import os
+from contextlib import contextmanager
+
 import torch
 
 
@@ -32,7 +36,7 @@ def export_ptq(model, *, output, calib):
 
     dummy_input = torch.randn(1, 119, 8, 8, dtype=torch.float32, device="cuda")
 
-    with pytorch_quantization.enable_onnx_export():
+    with pytorch_quantization.enable_nonnx_export():
         # enable_onnx_checker needs to be disabled. See notes below.
         torch.onnx.export(
             model,
@@ -109,16 +113,75 @@ def export_pt_bf16(model, *, inp_shape, device, output):
 
 
 def export_pt2_bf16(model, *, inp_shape, device, output):
+    inductor_configs = {
+        "conv_1x1_as_mm": True,
+        "epilogue_fusion": False,
+        "coordinate_descent_tuning": True,
+        "coordinate_descent_check_all_directions": True,
+        "max_autotune": True,
+        "triton.cudagraphs": True,
+    }
+
     torch.set_float32_matmul_precision("high")
     # assuming the model was trained with AMP
 
     # fix the batch dim to be 1. There is some wierd restriction
     # with torch.export.Dim, the batch dim can be anything other than 1
-    x = torch.randn(1, *inp_shape, dtype=torch.bfloat16).to(device=device)
+    x = torch.randn(2, *inp_shape, dtype=torch.bfloat16).to(device=device)
+    batch = torch.export.Dim("batch")
 
     with torch.no_grad():
         with torch.autocast(
             device_type=device, dtype=torch.bfloat16, cache_enabled=False
         ):
-            ep = torch.export.export(model, (x,))
-            torch._inductor.aoti_compile_and_package(ep, package_path=output)
+            ep = torch.export.export(
+                model, args=(x,), dynamic_shapes=({0: batch},), strict=True
+            )
+            # torch.export.save(ep, "/tmp/exported.pt2")
+            torch._inductor.aoti_compile_and_package(
+                ep, package_path=output, inductor_configs=inductor_configs
+            )
+
+
+@contextmanager
+def unlinking(tmpfile):
+    fd, path = tmpfile
+    os.close(fd)
+    try:
+        yield path
+    finally:
+        os.unlink(path)
+
+
+def export_onnx(model, *, inp_shapes, device, output, fp16):
+    inp1 = torch.randn(1, *inp_shapes[0], dtype=torch.float32).to(device=device)
+    inp2 = torch.randn(1, *inp_shapes[1], dtype=torch.float32).to(device=device)
+
+    with unlinking(tempfile.mkstemp(suffix=".onnx")) as tmp:
+        with torch.no_grad():
+            torch.onnx.export(
+                model,
+                (inp1, inp2),
+                tmp,
+                input_names=["boards", "meta"],
+                output_names=["policy", "value"],
+            )
+
+        if not fp16:
+            import shutil
+
+            shutil.copyfile(tmp, output)
+            return
+
+        import onnx
+        from onnxconverter_common import auto_convert_mixed_precision
+
+        model = onnx.load(tmp)
+        model = auto_convert_mixed_precision(
+            model,
+            {"boards": inp1.cpu().numpy(), "meta": inp2.cpu().numpy()},
+            rtol=0.01,
+            atol=0.001,
+            keep_io_types=True,
+        )
+        onnx.save(model, output)

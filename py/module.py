@@ -1,4 +1,7 @@
 import torch
+from torch._prims_common import check
+from torchvision.ops import SqueezeExcitation
+
 # import torch_tensorrt
 
 
@@ -15,12 +18,38 @@ class ResBlock(torch.nn.Module):
         self.bn2 = torch.nn.BatchNorm2d(planes)
 
     def forward(self, x):
-        residual = x
         out = self.conv1(x)
         out = torch.relu(self.bn1(out))
         out = self.conv2(out)
         out = self.bn2(out)
-        out = out + residual
+        out = out + x
+        out = torch.relu(out)
+        return out
+
+
+class ResBlockSE(torch.nn.Module):
+    def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
+        super().__init__()
+        self.conv1 = torch.nn.Conv2d(
+            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
+        self.bn1 = torch.nn.BatchNorm2d(planes)
+        self.conv2 = torch.nn.Conv2d(
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
+        self.bn2 = torch.nn.BatchNorm2d(planes)
+        self.se = SqueezeExcitation(
+            planes,
+            planes // 2,
+        )
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = torch.relu(self.bn1(out))
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.se(out)
+        out = out + x
         out = torch.relu(out)
         return out
 
@@ -54,6 +83,66 @@ class TwoLinearLayer(torch.nn.Module):
         return self.model(x)
 
 
+class PolicyHead(torch.nn.Module):
+    def __init__(self, din):
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Conv2d(din, 256, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(256),
+            torch.nn.Conv2d(din, 73, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(73),
+            torch.nn.Flatten(),
+            torch.nn.LogSoftmax(dim=1),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ValueHead(torch.nn.Module):
+    def __init__(self, din):
+        super().__init__()
+        nf = 256
+        self.conv = torch.nn.Sequential(
+            torch.nn.Conv2d(din, nf, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(nf),
+            torch.nn.ReLU(),
+            torch.nn.Flatten(),
+        )
+        self.ffn = torch.nn.Sequential(
+            torch.nn.Linear(8 * 8 * nf + 7, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 1),
+            torch.nn.Tanh(),
+        )
+
+    def forward(self, x, meta):
+        x = self.conv(x)
+        # meta = meta.to(x.dtype)
+        x = torch.cat((x, meta), dim=1)
+        return self.ffn(x)
+
+
+class ValueHeadOld(torch.nn.Module):
+    def __init__(self, din):
+        super().__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Conv2d(256, 64, kernel_size=1, bias=False),
+            torch.nn.BatchNorm2d(64),
+            # torch.nn.Dropout2d(p=0.5),
+            torch.nn.AvgPool2d(kernel_size=8),
+            torch.nn.Flatten(),
+            # torch.nn.Dropout(p=0.5),
+            torch.nn.Linear(64, 1),
+            # torch.nn.ReLU(inplace=True),
+            # torch.nn.Linear(128, 1),
+            torch.nn.Tanh(),
+        )
+
+    def forward(self, x, meta):
+        return self.model(x)
+
+
 class ChessModule(torch.nn.Module):
     def __init__(self, n_res_blocks=19, n_boards=8):
         super().__init__()
@@ -66,43 +155,41 @@ class ChessModule(torch.nn.Module):
         # 8 boards (14 channels each)
         self.conv_block = torch.nn.Sequential(
             torch.nn.Conv2d(
-                14 * n_boards, 256, kernel_size=5, stride=1, padding=2, bias=False
+                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=False
             ),
             torch.nn.BatchNorm2d(256),
             torch.nn.ReLU(inplace=False),
         )
 
-        self.res_blocks = torch.nn.ModuleList([ResBlock() for _ in range(n_res_blocks)])
+        self.res_blocks = torch.nn.ModuleList(
+            [ResBlockSE() for _ in range(n_res_blocks)]
+            # [ResBlock() for _ in range(n_res_blocks)]
+        )
 
-        mid = 512
-        self.dropout = DropoutBlock(256, mid, 0.1)
-        self.value_head = TwoLinearLayer(8 * 8 * mid + 7, 512, 1)
-        self.policy_head = TwoLinearLayer(8 * 8 * mid + 7, 2048, 8 * 8 * 73)
+        # mid = 512
+        # self.dropout = DropoutBlock(256, mid, 0.1)
+        # self.value_head = TwoLinearLayer(8 * 8 * mid + 7, 512, 1)
+        # self.policy_head = TwoLinearLayer(8 * 8 * mid + 7, 2048, 8 * 8 * 73)
+        self.value_head = ValueHead(256)
+        self.policy_head = PolicyHead(256)
 
-    def forward(self, inp):
-        # inp shape bx119x8x8
-        # dim 0:112 are encoded boards
-        # dim 112:119 are the meta data
-        meta = inp[:, 112:, 0, 0]
-        inp = inp[:, :112, ...]
-
+    def forward(self, inp, meta):
+        # inp shape bx112x8x8
+        # meta shape bx7
         x = self.conv_block(inp)
 
         for block in self.res_blocks:
             x = block(x)
 
-        x = self.dropout(x)
-        x = torch.concatenate((x, meta), dim=1)
+        latent = x
 
-        v1 = self.policy_head(x)
-        v1 = torch.nn.functional.log_softmax(v1, dim=1)
+        v1 = self.policy_head(latent)
 
-        v2 = self.value_head(x)
-        v2 = torch.nn.functional.tanh(v2)
+        v2 = self.value_head(latent, meta)
         turn = meta[:, 0].unsqueeze(-1)
         v2 = v2 * (turn * 2 - 1)
 
-        return v1, v2
+        return (v1, v2)
 
 
 def _load_ckpt(model, checkpoint, omit=None):
@@ -116,7 +203,16 @@ def _load_ckpt(model, checkpoint, omit=None):
         for key in del_keys:
             del ckpt[key]
 
-    r = model.load_state_dict(ckpt, strict=omit is None)
+    if "pytorch-lightning_version" not in ckpt:
+        state_dict = ckpt
+    else:
+
+        def _chop_prefix(name):
+            return name.split(".", maxsplit=1)[1]
+
+        state_dict = {_chop_prefix(k): v for k, v in ckpt["state_dict"].items()}
+
+    r = model.load_state_dict(state_dict, strict=omit is None)
     if r.missing_keys:
         print("missing or omitted keys", r.missing_keys)
     if r.unexpected_keys:
@@ -152,3 +248,48 @@ def load_model(
         model = torch.compile(model, mode="reduce-overhead", fullgraph=True)
 
     return model.to(device)
+
+
+def _wrapup_py(model):
+
+    def inference(*inp):
+        with torch.no_grad():
+            with torch.autocast(
+                device_type="cuda", dtype=torch.bfloat16, cache_enabled=False
+            ):
+                return model(*inp)
+
+    return inference
+
+
+def load_model_for_inference(checkpoint, n_res_blocks=None):
+    if checkpoint.endswith(".ckpt"):
+        assert n_res_blocks is not None
+        return _wrapup_py(
+            load_model(
+                n_res_blocks=int(n_res_blocks),
+                checkpoint=checkpoint,
+                inference=True,
+                device="cuda",
+            )
+        )
+
+    if checkpoint.endswith(".pt"):
+        return torch.jit.load(checkpoint)
+
+    if checkpoint.endswith(".pt2"):
+        return torch._inductor.aoti_load_package(checkpoint)
+        # return _wrapup_py(torch.export.load(checkpoint).module())
+
+    if checkpoint.endswith(".onnx"):
+        import onnxruntime as ort
+
+        sess = ort.InferenceSession(checkpoint)
+
+        def inference(inp):
+            p, v = sess.run(["policy", "value"], {"inp": inp.float().cpu().numpy()})
+            return torch.from_numpy(p), torch.from_numpy(v)
+
+        return inference
+
+    raise RuntimeError("unsupported model " + checkpoint)

@@ -15,6 +15,7 @@ def main():
     psplit.add_argument("-r", "--ratio", default=0.1, type=float)
     psplit.add_argument("-v", "--val", required=True)
     psplit.add_argument("-t", "--train", required=True)
+    psplit.add_argument("--factor-draw", type=float, default=1.0)
     psplit.add_argument(
         "--sample-draw", choices=["sample", "keep-all"], default="sample"
     )
@@ -38,6 +39,7 @@ def mix(args):
 
     for f in files:
         comps = f.split(os.sep)
+        external = comps[0] == ".."
 
         index = 0
         while index < len(comps) and (
@@ -57,14 +59,17 @@ def mix(args):
             {
                 "run_id": run_id,
                 "file": f,
+                "external": external,
             }
         )
 
     df = pd.DataFrame(collection)
+    edf = df[df.external]
+    cdf = df[~df.external]
 
-    latest_run_id = df.run_id.max()
-    older_runs = df[df.run_id < latest_run_id]
-    latest_runs = df[df.run_id == latest_run_id]
+    latest_run_id = cdf.run_id.max()
+    older_runs = pd.concat([edf, cdf[cdf.run_id < latest_run_id]])
+    latest_runs = cdf[cdf.run_id == latest_run_id]
 
     assert len(older_runs) >= args.ratio * len(
         latest_runs
@@ -84,10 +89,28 @@ def split(args):
 
     def _get_result(f):
         o = json.load(open(f))
-        return (o.get("outcome") or {}).get("winner", None) or "draw"
+        o = o.get("outcome")
+
+        if o is None:
+            return "Unfinished"
+
+        if w := o.get("winner"):
+            return w
+
+        return o.get("termination")
 
     df = pd.DataFrame([{"filename": f, "result": _get_result(f)} for f in tqdm(files)])
-    groups = df.groupby(by="result")
+    df["result_"] = df["result"].map(
+        {
+            "White": "White",
+            "Black": "Black",
+            "InsufficientMaterial": "draw",
+            "Stalemate": "draw",
+            "Unfinished": "draw",
+        }
+    )
+    df.dropna(inplace=True)
+    groups = df.groupby(by="result_")
 
     group_keys = groups.groups.keys()
 
@@ -96,7 +119,7 @@ def split(args):
     print("--------")
 
     if "White" in group_keys and "Black" in group_keys:
-        nmax = groups.count().loc[["White", "Black"]].max().item()
+        nmax = groups.count().result.loc[["White", "Black"]].max().item()
 
         w = groups.get_group("White")
         b = groups.get_group("Black")
@@ -108,6 +131,9 @@ def split(args):
 
         if "draw" in group_keys:
             if args.sample_draw == "sample":
+                if args.factor_draw is not None:
+                    total_draw = len(groups.get_group("draw"))
+                    nmax = min(total_draw, int(args.factor_draw * nmax))
                 d = groups.get_group("draw").sample(n=nmax)
             elif args.sample_draw == "keep-all":
                 d = groups.get_group("draw")
@@ -124,6 +150,11 @@ def split(args):
             for g in group_keys
         ]
 
+    print("Selected")
+    for c, g in zip("wbd", groups_col):
+        print(c, ":", len(g))
+    print("--------")
+
     def _split(d):
         nval = int(len(d) * args.ratio)
         assert nval > 0
@@ -131,8 +162,8 @@ def split(args):
 
     val, train = zip(*[_split(g) for g in groups_col])
 
-    val = pd.concat(val)
-    train = pd.concat(train)
+    val = pd.concat(val).sample(frac=1).reset_index(drop=True)
+    train = pd.concat(train).sample(frac=1).reset_index(drop=True)
 
     print(f"val split: {len(val)} samples")
     print(f"train split: {len(train)} samples")

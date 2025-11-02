@@ -1,10 +1,13 @@
 import argparse
 import json
+from math import exp, log
 import os
 from dataclasses import dataclass
 from typing import Optional
 from multiprocessing import Pool
 from functools import partial
+from pandas import option_context
+from torch.optim import optimizer
 from tqdm import tqdm
 
 import numpy as np
@@ -27,40 +30,35 @@ class ChessLightningModule(L.LightningModule):
         self.config = config
 
         model_conf = config["model_conf"]
-        if isinstance(model_conf, TransferConf):
-            self.teacher = load_model(
-                n_res_blocks=model_conf.teacher,
-                checkpoint=config["last_ckpt"],
-                inference=True,
-                compile=False,
-            )
-            self.model = load_model(
-                n_res_blocks=model_conf.student,
-                inference=False,
-                compile=False,
-            )
+        assert isinstance(model_conf, int)
+        self.model = load_model(
+            n_res_blocks=model_conf,
+            checkpoint=config["last_ckpt"],
+            inference=False,
+            compile=False,
+            omit=config.get("omit"),
+        )
 
-        else:
-            assert isinstance(model_conf, int)
-            self.model = load_model(
-                n_res_blocks=model_conf,
-                checkpoint=config["last_ckpt"],
-                inference=False,
-                compile=False,
-            )
-            self.teacher = None
-
+        freeze_prefix = []
         if config["freeze_backbone"]:
+            freeze_prefix = ["model.conv_block.", "model.res_blocks."]
+
+        if config["freeze"]:
+            freeze_prefix.extend(config["freeze"])
+
+        if freeze_prefix:
             trainable_weights = []
-            prefixes = ["model.conv_block.", "model.res_blocks."]
+
             for name, param in self.named_parameters():
-                if not any(name.startswith(p) for p in prefixes):
+                if not any(name.startswith(p) for p in freeze_prefix):
                     trainable_weights.append(name)
                     continue
                 param.requires_grad = False
             print("Trainnable weights: ", trainable_weights)
 
         if config["compile_model"]:
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cuda.matmul.allow_tf32 = True
             self.model.compile(mode="reduce-overhead", fullgraph=True)
             # skip compiling the teacher, as we don't use do transfer-learning yet.
 
@@ -69,36 +67,31 @@ class ChessLightningModule(L.LightningModule):
         return -(log_dist_pred * dist_gt).sum() / batch_size
 
     def compute_loss2(self, value_pred, value_gt):
-        batch_size = value_gt.shape[0]
-        return F.mse_loss(value_pred, value_gt, reduction="sum") / batch_size
+        return F.mse_loss(value_pred, value_gt, reduction="mean")
 
     def training_step(self, batch, batch_idx):
-        boards, dist, outcome = batch
+        boards, meta, dist, outcome = batch
 
-        if not isinstance(self.config["model_conf"], TransferConf):
-            log_dist_pred, value_pred = self.model(boards)
-            loss1 = self.compute_loss1(log_dist_pred, dist)
-            loss2 = self.compute_loss2(value_pred, outcome)
+        log_dist_pred, value_pred = self.model(boards, meta)
+        loss1 = self.compute_loss1(log_dist_pred, dist)
+        loss2 = self.compute_loss2(value_pred, outcome)
 
-        else:
-            batch_size_supervised = self.config["train_batch_size"] // 2
+        g1 = torch.autograd.grad(
+            loss1,
+            self.model.res_blocks[-1].parameters(),
+            allow_unused=True,
+            retain_graph=True,
+            create_graph=True,
+        )[0]
+        g2 = torch.autograd.grad(
+            loss2,
+            self.model.res_blocks[-1].parameters(),
+            allow_unused=True,
+            retain_graph=True,
+            create_graph=True,
+        )[0]
 
-            boards_supervised = boards[:batch_size_supervised]
-            dist_supervised = dist[:batch_size_supervised]
-            outcome_supervised = outcome[:batch_size_supervised]
-
-            boards_unsupervised = boards[batch_size_supervised:]
-            dist_unsupervised, outcome_unsupervised = self.teacher(boards_unsupervised)
-            dist_unsupervised = torch.exp(dist_unsupervised)
-
-            dist_student = torch.cat((dist_supervised, dist_unsupervised), dim=0)
-            outcome_student = torch.cat(
-                (outcome_supervised, outcome_unsupervised), dim=0
-            )
-
-            log_dist_pred, value_pred = self.model(boards)
-            loss1 = self.compute_loss1(log_dist_pred, dist_student)
-            loss2 = self.compute_loss2(value_pred, outcome_student)
+        gr = (torch.norm(g1) / torch.norm(g2)).detach().cpu().item()
 
         self.log_dict(
             {
@@ -106,14 +99,21 @@ class ChessLightningModule(L.LightningModule):
                 "loss2": loss2,
                 "loss": loss1 + self.config["loss_weight"] * loss2,
                 "w2": torch.nn.utils.get_total_norm(self.parameters()),
+                "gr": gr,
+                "w2_vh": torch.nn.utils.get_total_norm(
+                    self.model.value_head.parameters()
+                ),
+                "w2_ph": torch.nn.utils.get_total_norm(
+                    self.model.policy_head.parameters()
+                ),
             }
         )
         return loss1 + self.config["loss_weight"] * loss2
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         prefix = "val_syn" if dataloader_idx == 0 else "val_real"
-        boards, dist, outcome = batch
-        log_dist_pred, value_pred = self.model(boards)
+        boards, meta, dist, outcome = batch
+        log_dist_pred, value_pred = self.model(boards, meta)
         loss1 = self.compute_loss1(log_dist_pred, dist)
         loss2 = self.compute_loss2(value_pred, outcome)
 
@@ -133,35 +133,71 @@ class ChessLightningModule(L.LightningModule):
         self.trainer.strategy.barrier()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=self.config["lr"],
-            weight_decay=self.config["weight_decay"],
-        )
+        optm = self.config.get("optimizer", "AdamW")
 
-        # optimizer = torch.optim.SGD(
-        #    self.parameters(),
-        #    lr=self.config["lr"],
-        #    momentum=0.9,
-        #    weight_decay=self.config["weight_decay"],
-        # )
+        if optm == "AdamW":
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.config["lr"],
+                weight_decay=self.config["weight_decay"],
+            )
+
+        elif optm == "SGD":
+            optimizer = torch.optim.SGD(
+                self.parameters(),
+                lr=self.config["lr"],
+                momentum=0.9,
+                weight_decay=self.config["weight_decay"],
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {optm}")
 
         if self.config["lr_scheduler"] == "constant":
             return optimizer
 
-        from torch.optim.lr_scheduler import OneCycleLR
-
-        scheduler = OneCycleLR(
-            optimizer=optimizer,
-            max_lr=self.config["lr"],
-            total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+        from torch.optim.lr_scheduler import (
+            OneCycleLR,
+            ExponentialLR,
+            CosineAnnealingLR,
+            LinearLR,
+            ChainedScheduler,
         )
+
+        sched = self.config["lr_scheduler"]
+        if sched == "exponential":
+            # gamma = exp(log(0.2) / self.config["epochs"])
+            gamma = 0.85
+            print(f"using gamma: {gamma:.4f}")
+            scheduler = ExponentialLR(optimizer=optimizer, gamma=gamma)
+            interval = "epoch"
+
+        elif sched == "onecycle":
+            scheduler = OneCycleLR(
+                optimizer=optimizer,
+                max_lr=self.config["lr"],
+                total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+            )
+            interval = "step"
+
+        elif sched == "cosine":
+            schedulers = [
+                LinearLR(optimizer=optimizer, total_iters=1),
+                CosineAnnealingLR(
+                    optimizer=optimizer,
+                    T_max=self.config["epochs"],
+                ),
+            ]
+            scheduler = ChainedScheduler(schedulers, optimizer)
+            interval = "epoch"
+
+        else:
+            raise RuntimeError("unknown scheduler: " + sched)
 
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "interval": "step",
+                "interval": interval,
                 "frequency": 1,
             },
         }
@@ -203,30 +239,23 @@ class ModelCheckpointAtEpochEnd(Callback):
         torch.save(m.state_dict(), path)
 
 
-@dataclass
-class TransferConf:
-    student: int
-    teacher: int
-
-    @classmethod
-    def parse(cls, conf: Optional[str]) -> Optional["TransferConf"]:
-        if conf is None:
-            return None
-
-        ts = conf.split(":")
-        if len(ts) != 2:
-            return None
-
-        return cls(int(ts[1]), int(ts[0]))
+def _make_dataset(path, start_step=0):
+    return [
+        ChessDataset(path, False, start_step=start_step),
+        # ChessDataset(path, True, start_step=start_step),
+    ]
 
 
 def main():
-    torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.matmul.allow_tf32 = True
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--trace-file-for-train", nargs="+", action="extend")
     parser.add_argument("-v", "--trace-file-for-val", nargs="+", action="extend")
     parser.add_argument("-n", "--epochs", type=int, default=10)
+    parser.add_argument("--max-epochs", type=int, default=0)
     parser.add_argument("-c", "--last-ckpt", type=str)
+    parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("-l", "--lr", type=float, default=1e-4)
     parser.add_argument("-w", "--loss-weight", type=float, default=0.002)
     parser.add_argument("--save-every-k", type=int, default=1)
@@ -237,13 +266,21 @@ def main():
     parser.add_argument("--train-batch-size", type=int, default=1024)
     parser.add_argument("--val-batch-size", type=int, default=128)
     parser.add_argument(
-        "--lr-scheduler", type=str, choices=["constant", "onecycle"], default="constant"
+        "--lr-scheduler",
+        type=str,
+        choices=["constant", "exponential", "onecycle", "cosine"],
+        default="constant",
     )
     parser.add_argument("--freeze-backbone", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--val-check-interval", type=int, default=0)
     parser.add_argument("--gradient-clip-val", type=float, default=0)
+    parser.add_argument("--optimizer", type=str, default="AdamW")
+
+    parser.add_argument("--omit", type=str, nargs="*")
+    parser.add_argument("--freeze", type=str, nargs="*")
+    parser.add_argument("--start-step", type=int, default=0)
     args = parser.parse_args()
 
     compile_model = not args.no_compile
@@ -264,11 +301,15 @@ def main():
     ]
 
     with Pool(12) as p:
-        dss = list(
+        dss = sum(
             tqdm(
-                p.imap(partial(ChessDataset), args.trace_file_for_train),
+                p.imap(
+                    partial(_make_dataset, start_step=args.start_step),
+                    args.trace_file_for_train,
+                ),
                 total=len(args.trace_file_for_train),
-            )
+            ),
+            [],
         )
     train_split = ConcatDataset(dss)
 
@@ -284,11 +325,12 @@ def main():
     )
 
     with Pool(12) as p:
-        dss = list(
+        dss = sum(
             tqdm(
-                p.imap(partial(ChessDataset), args.trace_file_for_val),
+                p.imap(_make_dataset, args.trace_file_for_val),
                 total=len(args.trace_file_for_val),
-            )
+            ),
+            [],
         )
     val_syn_split = ConcatDataset(dss)
 
@@ -314,6 +356,7 @@ def main():
         train_batch_size=args.train_batch_size,
         val_batch_size=args.val_batch_size,
         epochs=args.epochs,
+        max_epochs=args.epochs if args.max_epochs == 0 else args.max_epochs,
         steps_per_epoch=len(train_loader),
         lr=args.lr,
         trace_file_for_train=args.trace_file_for_train,
@@ -324,13 +367,15 @@ def main():
         save_every_k=args.save_every_k,
         loss_weight=args.loss_weight,
         compile_model=compile_model,
-        model_conf=None
-        if args.model_conf is None
-        else TransferConf.parse(args.model_conf) or int(args.model_conf),
+        model_conf=(None if args.model_conf is None else int(args.model_conf)),
         freeze_backbone=args.freeze_backbone,
         lr_scheduler=args.lr_scheduler,
         weight_decay=args.weight_decay,
         gradient_clip_val=args.gradient_clip_val,
+        optimizer=args.optimizer,
+        omit=args.omit or None,
+        freeze=args.freeze or None,
+        resume=args.resume,
     )
 
     module = ChessLightningModule(config)
@@ -346,21 +391,28 @@ def main():
         enable_checkpointing=False,
         logger=logger,
         callbacks=lightning_checkpoints,
-        max_epochs=config["epochs"],
+        max_epochs=config["max_epochs"],
         log_every_n_steps=10,
-        # precision="bf16-mixed",
+        # precision="16-mixed",
         # val_check_interval=20,
         **extra_params,
     )
+
+    fit_extra_params = {}
+    if args.resume:
+        fit_extra_params["ckpt_path"] = args.resume
+
     trainer.fit(
         model=module,
         train_dataloaders=train_loader,
         val_dataloaders=[val_syn, val_real],
+        **fit_extra_params,
     )
 
+    trainer.save_checkpoint(os.path.join(trainer.log_dir, "last.ckpt"))
     # m = module.model._orig_mod if compile_model else module.model
-    m = module.model
-    torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
+    # m = module.model
+    # torch.save(m.state_dict(), os.path.join(trainer.log_dir, "last.ckpt"))
 
 
 if __name__ == "__main__":

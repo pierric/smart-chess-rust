@@ -1,7 +1,7 @@
 #!/bin/bash
 
-BLACK_CKPT="runs/004/tb_logs/chess/version_0/epoch:11-val_loss:3.341.pt"
-WHITE_CKPT="runs/004/tb_logs/chess/version_0/epoch:11-val_loss:3.341.pt"
+BLACK_CKPT="L9/008/tb_logs/chess/version_6/last.pt2"
+WHITE_CKPT="L9/007/tb_logs/chess/version_26/last.pt2"
 
 cargo flamegraph --bin play -- \
   --white-device cuda --white-checkpoint $WHITE_CKPT \
