@@ -39,6 +39,7 @@ def mix(args):
 
     for f in files:
         comps = f.split(os.sep)
+        external = comps[0] == ".."
 
         index = 0
         while index < len(comps) and (
@@ -58,14 +59,17 @@ def mix(args):
             {
                 "run_id": run_id,
                 "file": f,
+                "external": external,
             }
         )
 
     df = pd.DataFrame(collection)
+    edf = df[df.external]
+    cdf = df[~df.external]
 
-    latest_run_id = df.run_id.max()
-    older_runs = df[df.run_id < latest_run_id]
-    latest_runs = df[df.run_id == latest_run_id]
+    latest_run_id = cdf.run_id.max()
+    older_runs = pd.concat([edf, cdf[cdf.run_id < latest_run_id]])
+    latest_runs = cdf[cdf.run_id == latest_run_id]
 
     assert len(older_runs) >= args.ratio * len(
         latest_runs
