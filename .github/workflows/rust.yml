@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/setup-python@v6.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.0"
       - uses: Gr1N/setup-poetry@v9
       - uses: actions/checkout@v5
       - name: Install poetry
