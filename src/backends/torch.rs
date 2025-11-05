@@ -11,6 +11,7 @@ pub struct ChessTS {
     pub device: tch::Device,
 }
 
+#[cfg(feature = "aotinductor")]
 pub struct ChessEP {
     pub model: aotinductor::ModelPackage,
     pub device: tch::Device,
@@ -46,6 +47,7 @@ impl Game<BoardState> for ChessTS {
     }
 }
 
+#[cfg(feature = "aotinductor")]
 impl TchModel for ChessEP {
     fn forward(&self, inp: Tensor) -> (Tensor, Tensor) {
         let outs = self.model.run(&vec![inp]);
@@ -61,6 +63,7 @@ impl TchModel for ChessEP {
     }
 }
 
+#[cfg(feature = "aotinductor")]
 impl Game<BoardState> for ChessEP {
     fn predict(
         &self,

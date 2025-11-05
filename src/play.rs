@@ -22,7 +22,7 @@ mod trace;
 mod underpromotions;
 
 use backends::onnx::ChessOnnx;
-use backends::torch::{ChessEP, ChessTS};
+use backends::torch::ChessTS;
 
 #[allow(non_camel_case_types)]
 mod jina {
@@ -178,7 +178,8 @@ impl NNPlayer<ChessTS> {
     }
 }
 
-impl NNPlayer<ChessEP> {
+#[cfg(feature = "aotinductor")]
+impl NNPlayer<backends::torch::ChessEP> {
     fn load(
         device: &str,
         checkpoint: &Path,
@@ -193,7 +194,7 @@ impl NNPlayer<ChessEP> {
             _ => todo!("Unsupported device name"),
         };
 
-        let chess = ChessEP {
+        let chess = backends::torch::ChessEP {
             model: aotinductor::ModelPackage::new(checkpoint.to_string_lossy().as_ref()).unwrap(),
             device: device,
         };
@@ -358,7 +359,8 @@ fn load_checkpoint<P: AsRef<Path>>(
             temperature,
             temperature_switch,
         )) as Box<SomeNNPlayer>,
-        Some("pt2") => Box::new(NNPlayer::<ChessEP>::load(
+        #[cfg(feature = "aotinductor")]
+        Some("pt2") => Box::new(NNPlayer::<backends::torch::ChessEP>::load(
             device,
             path,
             n_rollout,

@@ -87,6 +87,7 @@ fn main() {
                     device: device,
                 })
             }
+            #[cfg(feature = "aotinductor")]
             Some("pt2") => Box::new(backends::torch::ChessEP {
                 model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
                 device: device,
