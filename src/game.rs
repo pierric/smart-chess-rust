@@ -27,6 +27,7 @@ pub trait State {
     fn advance(&mut self, step: &Self::Step);
 }
 
+#[allow(dead_code)]
 pub fn prepare_tensors(boards: Array3<i8>, meta: Array1<i32>, device: tch::Device) -> Tensor {
     // copy to device in sync mode
     // otherwise may cause corruption in data (mps)
@@ -48,6 +49,7 @@ pub fn prepare_tensors(boards: Array3<i8>, meta: Array1<i32>, device: tch::Devic
         .unsqueeze(0)
 }
 
+#[allow(dead_code)]
 pub fn tensor_to_f32(t: Tensor) -> Option<f32> {
     let v = t.to_dtype(tch::Kind::Float, true, false);
     f32::try_from(&v).ok()

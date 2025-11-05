@@ -60,6 +60,7 @@ impl game::Game<BoardState> for ChessPy {
     }
 }
 
+#[allow(dead_code)]
 fn call_py_model(
     model: &Py<PyAny>,
     device: &str,

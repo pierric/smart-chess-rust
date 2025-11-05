@@ -55,6 +55,7 @@ impl Game<BoardState> for ChessOnnx {
     }
 }
 
+#[allow(dead_code)]
 fn call_onnx_model(
     session: &mut ort::session::Session,
     boards: Array3<i8>,

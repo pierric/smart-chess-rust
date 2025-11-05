@@ -6,6 +6,7 @@ use crate::chess::{BoardState, Color, Move, Step, _encode};
 use crate::game::{prepare_tensors, tensor_to_f32, Game, TchModel};
 use crate::mcts::ArcRefNode;
 
+#[allow(dead_code)]
 pub struct ChessTS {
     pub model: tch::CModule,
     pub device: tch::Device,
@@ -80,6 +81,7 @@ impl Game<BoardState> for ChessEP {
     }
 }
 
+#[allow(dead_code)]
 pub fn chess_tch_predict<M: TchModel>(
     chess: &M,
     node: &ArcRefNode<Step>,
