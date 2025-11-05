@@ -12,10 +12,12 @@ mod queenmoves;
 mod trace;
 mod underpromotions;
 
+#[cfg(feature = "jina")]
 #[allow(non_camel_case_types)]
 mod jina {
     tonic::include_proto!("jina");
 }
+#[cfg(feature = "jina")]
 mod docarray {
     tonic::include_proto!("docarray");
 }
@@ -117,7 +119,10 @@ fn main() {
             _ => panic!("unsupported checkpoint type."),
         }
     } else {
-        Box::new(backends::grpc::ChessService::new(&args.endpoint))
+        #[cfg(feature = "jina")]
+        return Box::new(backends::grpc::ChessService::new(&args.endpoint));
+        #[cfg(not(feature = "jina"))]
+        panic!("a checkpoint is required, because grpc not enabled.")
     };
 
     //use pyo3::prelude::*;

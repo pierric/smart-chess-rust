@@ -15,10 +15,12 @@ pub mod mcts;
 pub mod queenmoves;
 pub mod underpromotions;
 
+#[cfg(feature = "jina")]
 #[allow(non_camel_case_types)]
 mod jina {
     tonic::include_proto!("jina");
 }
+#[cfg(feature = "jina")]
 mod docarray {
     tonic::include_proto!("docarray");
 }

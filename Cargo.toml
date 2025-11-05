@@ -60,9 +60,9 @@ once_cell = "1.19.0"
 c_str_macro = "1.0.3"
 short-uuid = "0.1.4"
 aotinductor = { git = "https://github.com/pierric/aotinductor-rs", optional = true }
-tonic = "=0.14.2"
-prost = "=0.14.1"
-prost-types = "=0.14.1"
+tonic = { version = "=0.12.3", optional = true }
+prost = { version = "=0.13.2", optional = true }
+prost-types = { version = "=0.13.2", optional = true }
 tokio = { version = "1.44.1", features = ["rt-multi-thread"] }
 bytemuck = "1.22.0"
 chess = "3.2.0"
@@ -72,6 +72,7 @@ debug = true
 
 [features]
 aotinductor = ["dep:aotinductor"]
+jina = ["dep:tonic", "dep:prost", "dep:prost-types"]
 
 #[[bench]]
 #name = "chess_bench"
