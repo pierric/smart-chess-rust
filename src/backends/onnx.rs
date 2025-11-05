@@ -5,6 +5,7 @@ use crate::mcts::ArcRefNode;
 use ndarray::{Array1, Array3, Axis};
 use std::ops::Index;
 
+#[allow(dead_code)]
 pub struct ChessOnnx {
     pub session: std::cell::RefCell<ort::session::Session>,
 }

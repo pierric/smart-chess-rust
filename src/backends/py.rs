@@ -10,6 +10,7 @@ use crate::chess::{BoardState, Color, Move, Step, _encode};
 use crate::game;
 use crate::mcts::ArcRefNode;
 
+#[allow(dead_code)]
 pub struct ChessPy {
     pub model: Py<PyAny>,
     pub device: String,
