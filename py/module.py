@@ -92,11 +92,11 @@ class PolicyHead(torch.nn.Module):
             torch.nn.Conv2d(din, 73, kernel_size=1, bias=False),
             torch.nn.BatchNorm2d(73),
             torch.nn.Flatten(),
-            torch.nn.LogSoftmax(dim=1),
         )
 
     def forward(self, x):
-        return self.model(x)
+        x = self.model(x)
+        return x.max(), torch.nn.functional.log_softmax(x, dim=1)
 
 
 class ValueHead(torch.nn.Module):
@@ -183,11 +183,14 @@ class ChessModule(torch.nn.Module):
 
         latent = x
 
-        v1 = self.policy_head(latent)
+        max_logit, v1 = self.policy_head(latent)
 
         v2 = self.value_head(latent, meta)
         turn = meta[:, 0].unsqueeze(-1)
         v2 = v2 * (turn * 2 - 1)
+
+        if self.training:
+            return (v1, v2, max_logit)
 
         return (v1, v2)
 

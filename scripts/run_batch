@@ -1,4 +1,4 @@
-set -eux
+#! /bin/bash -eux
 # source .env
 
 ARGS=$@
@@ -11,7 +11,9 @@ echo "$ARGS" > $PREFIX/trace_args
 task() {
     JOB_ID=$1
     shift
-    echo "Run index" ${JOB_ID} .. $PWD .. $@
+    RED='\033[0;31m'
+    NC='\033[0m'
+    echo -e "${RED}Run index:" ${JOB_ID} ${NC} .. $PWD .. $@
     cargo r --release --bin selfplay -- -t "${PREFIX}/trace${JOB_ID}.json" $@ > "/tmp/chess_log_${JOB_ID}"
 }
 

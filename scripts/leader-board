@@ -5,7 +5,9 @@ task() {
   PREFIX=$2
   shift 2
 
-  echo "Run index ${JOB_ID}: W: ${W} B: ${B} ARGS: $@"
+  RED='\033[0;31m'
+  NC='\033[0m'
+  echo -e "${RED}Run index ${JOB_ID}${NC}: W: ${W} B: ${B} ARGS: $@"
   cargo r --release --bin ${GAME} -- \
     --white-device ${DEVICE} --white-checkpoint ${W} \
     --black-device ${DEVICE} --black-checkpoint ${B} \

@@ -874,7 +874,7 @@ pub fn post_process_distr(distr: Vec<f32>, argmax: bool, any: impl fmt::Debug) -
             println!("Warning: {:?}", distr);
         }
 
-        if sum < 0.5 {
+        if sum < 0.1 {
             println!("Warning: all moves ({:?}) sums up to only {}", any, sum);
         }
 

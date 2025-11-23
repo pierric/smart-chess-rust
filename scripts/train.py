@@ -72,26 +72,29 @@ class ChessLightningModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         boards, meta, dist, outcome = batch
 
-        log_dist_pred, value_pred = self.model(boards, meta)
+        log_dist_pred, value_pred, max_logit = self.model(boards, meta)
         loss1 = self.compute_loss1(log_dist_pred, dist)
         loss2 = self.compute_loss2(value_pred, outcome)
 
-        g1 = torch.autograd.grad(
-            loss1,
-            self.model.res_blocks[-1].parameters(),
-            allow_unused=True,
-            retain_graph=True,
-            create_graph=True,
-        )[0]
-        g2 = torch.autograd.grad(
-            loss2,
-            self.model.res_blocks[-1].parameters(),
-            allow_unused=True,
-            retain_graph=True,
-            create_graph=True,
-        )[0]
+        if self.config["compile_model"]:
+            gr = 0
+        else:
+            g1 = torch.autograd.grad(
+                loss1,
+                self.model.res_blocks[-1].parameters(),
+                allow_unused=True,
+                retain_graph=True,
+                create_graph=True,
+            )[0]
+            g2 = torch.autograd.grad(
+                loss2,
+                self.model.res_blocks[-1].parameters(),
+                allow_unused=True,
+                retain_graph=True,
+                create_graph=True,
+            )[0]
 
-        gr = (torch.norm(g1) / torch.norm(g2)).detach().cpu().item()
+            gr = (torch.norm(g1) / torch.norm(g2)).detach().cpu().item()
 
         self.log_dict(
             {
@@ -106,6 +109,7 @@ class ChessLightningModule(L.LightningModule):
                 "w2_ph": torch.nn.utils.get_total_norm(
                     self.model.policy_head.parameters()
                 ),
+                "max_logit": max_logit,
             }
         )
         return loss1 + self.config["loss_weight"] * loss2
@@ -393,7 +397,7 @@ def main():
         callbacks=lightning_checkpoints,
         max_epochs=config["max_epochs"],
         log_every_n_steps=10,
-        # precision="16-mixed",
+        precision="16-mixed",
         # val_check_interval=20,
         **extra_params,
     )
