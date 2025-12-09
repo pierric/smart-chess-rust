@@ -95,11 +95,11 @@ fn main() {
                 device: device,
             }),
             Some("onnx") => {
-                let rocm = ROCmExecutionProvider::default();
-                if !rocm.is_available().unwrap() {
-                    eprintln!("Please compile ONNX Runtime with ROCm!");
-                    std::process::exit(1);
-                }
+                //let rocm = ROCmExecutionProvider::default();
+                //if !rocm.is_available().unwrap() {
+                //    eprintln!("Please compile ONNX Runtime with ROCm!");
+                //    std::process::exit(1);
+                //}
                 ort::init()
                     .with_execution_providers([
                         CUDAExecutionProvider::default().build(),
