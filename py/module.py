@@ -1,46 +1,37 @@
 import torch
 from torch._prims_common import check
 from torchvision.ops import SqueezeExcitation
+from timm.layers.norm import LayerNorm2d
+
+NormTable = {
+    "BatchNorm": torch.nn.BatchNorm2d,
+    "LayerNorm": LayerNorm2d,
+}
 
 # import torch_tensorrt
 
 
-class ResBlock(torch.nn.Module):
-    def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
-        super().__init__()
-        self.conv1 = torch.nn.Conv2d(
-            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
-        )
-        self.bn1 = torch.nn.BatchNorm2d(planes)
-        self.conv2 = torch.nn.Conv2d(
-            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
-        )
-        self.bn2 = torch.nn.BatchNorm2d(planes)
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = torch.relu(self.bn1(out))
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = out + x
-        out = torch.relu(out)
-        return out
-
-
 class ResBlockSE(torch.nn.Module):
-    def __init__(self, inplanes=256, planes=256, stride=1, downsample=None):
+    def __init__(
+        self, inplanes=256, planes=256, stride=1, use_se=True, norm="LayerNorm"
+    ):
         super().__init__()
         self.conv1 = torch.nn.Conv2d(
             inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
-        self.bn1 = torch.nn.BatchNorm2d(planes)
+        norm_builder = NormTable[norm]
+        self.bn1 = norm_builder(planes)
         self.conv2 = torch.nn.Conv2d(
             planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
-        self.bn2 = torch.nn.BatchNorm2d(planes)
-        self.se = SqueezeExcitation(
-            planes,
-            planes // 2,
+        self.bn2 = norm_builder(planes)
+        self.se = (
+            SqueezeExcitation(
+                planes,
+                planes // 2,
+            )
+            if use_se
+            else torch.nn.Identity()
         )
 
     def forward(self, x):
@@ -70,27 +61,15 @@ class DropoutBlock(torch.nn.Module):
         return self.model(x)
 
 
-class TwoLinearLayer(torch.nn.Module):
-    def __init__(self, din: int, hidden: int, dout: int):
-        super().__init__()
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(din, hidden),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden, dout),
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
-
 class PolicyHead(torch.nn.Module):
-    def __init__(self, din):
+    def __init__(self, din, norm):
         super().__init__()
+        norm_builder = NormTable[norm]
         self.model = torch.nn.Sequential(
             torch.nn.Conv2d(din, 256, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(256),
+            norm_builder(256),
             torch.nn.Conv2d(din, 73, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(73),
+            norm_builder(73),
             torch.nn.Flatten(),
         )
 
@@ -100,12 +79,13 @@ class PolicyHead(torch.nn.Module):
 
 
 class ValueHead(torch.nn.Module):
-    def __init__(self, din):
+    def __init__(self, din, norm):
         super().__init__()
         nf = 256
+        norm_builder = NormTable[norm]
         self.conv = torch.nn.Sequential(
             torch.nn.Conv2d(din, nf, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(nf),
+            norm_builder(nf),
             torch.nn.ReLU(),
             torch.nn.Flatten(),
         )
@@ -123,28 +103,8 @@ class ValueHead(torch.nn.Module):
         return self.ffn(x)
 
 
-class ValueHeadOld(torch.nn.Module):
-    def __init__(self, din):
-        super().__init__()
-        self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(256, 64, kernel_size=1, bias=False),
-            torch.nn.BatchNorm2d(64),
-            # torch.nn.Dropout2d(p=0.5),
-            torch.nn.AvgPool2d(kernel_size=8),
-            torch.nn.Flatten(),
-            # torch.nn.Dropout(p=0.5),
-            torch.nn.Linear(64, 1),
-            # torch.nn.ReLU(inplace=True),
-            # torch.nn.Linear(128, 1),
-            torch.nn.Tanh(),
-        )
-
-    def forward(self, x, meta):
-        return self.model(x)
-
-
 class ChessModule(torch.nn.Module):
-    def __init__(self, n_res_blocks=19, n_boards=8):
+    def __init__(self, n_res_blocks=19, n_boards=8, use_se=True, norm="LayerNorm"):
         super().__init__()
 
         # NOTE: The encoded boards (without the 7 meta planes) are passed through convoluational
@@ -157,21 +117,16 @@ class ChessModule(torch.nn.Module):
             torch.nn.Conv2d(
                 14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=False
             ),
-            torch.nn.BatchNorm2d(256),
+            NormTable[norm](256),
             torch.nn.ReLU(inplace=False),
         )
 
         self.res_blocks = torch.nn.ModuleList(
-            [ResBlockSE() for _ in range(n_res_blocks)]
-            # [ResBlock() for _ in range(n_res_blocks)]
+            [ResBlockSE(use_se=use_se, norm=norm) for _ in range(n_res_blocks)]
         )
 
-        # mid = 512
-        # self.dropout = DropoutBlock(256, mid, 0.1)
-        # self.value_head = TwoLinearLayer(8 * 8 * mid + 7, 512, 1)
-        # self.policy_head = TwoLinearLayer(8 * 8 * mid + 7, 2048, 8 * 8 * 73)
-        self.value_head = ValueHead(256)
-        self.policy_head = PolicyHead(256)
+        self.value_head = ValueHead(256, norm=norm)
+        self.policy_head = PolicyHead(256, norm=norm)
 
     def forward(self, inp, meta):
         # inp shape bx112x8x8
