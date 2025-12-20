@@ -16,13 +16,14 @@ class ResBlockSE(torch.nn.Module):
         self, inplanes=256, planes=256, stride=1, use_se=True, norm="LayerNorm"
     ):
         super().__init__()
+        use_bias = norm != "BatchNorm"
         self.conv1 = torch.nn.Conv2d(
-            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=use_bias
         )
         norm_builder = NormTable[norm]
         self.bn1 = norm_builder(planes)
         self.conv2 = torch.nn.Conv2d(
-            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=use_bias
         )
         self.bn2 = norm_builder(planes)
         self.se = (
@@ -65,10 +66,11 @@ class PolicyHead(torch.nn.Module):
     def __init__(self, din, norm):
         super().__init__()
         norm_builder = NormTable[norm]
+        use_bias = norm != "BatchNorm"
         self.model = torch.nn.Sequential(
-            torch.nn.Conv2d(din, 256, kernel_size=1, bias=False),
+            torch.nn.Conv2d(din, 256, kernel_size=1, bias=use_bias),
             norm_builder(256),
-            torch.nn.Conv2d(din, 73, kernel_size=1, bias=False),
+            torch.nn.Conv2d(din, 73, kernel_size=1, bias=use_bias),
             norm_builder(73),
             torch.nn.Flatten(),
         )
@@ -83,8 +85,9 @@ class ValueHead(torch.nn.Module):
         super().__init__()
         nf = 256
         norm_builder = NormTable[norm]
+        use_bias = norm != "BatchNorm"
         self.conv = torch.nn.Sequential(
-            torch.nn.Conv2d(din, nf, kernel_size=1, bias=False),
+            torch.nn.Conv2d(din, nf, kernel_size=1, bias=use_bias),
             norm_builder(nf),
             torch.nn.ReLU(),
             torch.nn.Flatten(),
@@ -113,9 +116,10 @@ class ChessModule(torch.nn.Module):
         # are concatenated to the latent before feeding into the Linear layers.
 
         # 8 boards (14 channels each)
+        use_bias = norm != "BatchNorm"
         self.conv_block = torch.nn.Sequential(
             torch.nn.Conv2d(
-                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=False
+                14 * n_boards, 256, kernel_size=3, stride=1, padding=1, bias=use_bias
             ),
             NormTable[norm](256),
             torch.nn.ReLU(inplace=False),
