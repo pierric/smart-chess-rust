@@ -88,7 +88,11 @@ def split(args):
         files = list(filter(None, map(lambda l: l.strip(), fp.readlines())))
 
     def _get_result(f):
-        o = json.load(open(f))
+        try:
+            o = json.load(open(f))
+        except:
+            print(f"Failed to load file: {f}")
+            raise
         o = o.get("outcome")
 
         if o is None:
