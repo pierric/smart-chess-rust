@@ -18,6 +18,14 @@ import torch.nn.functional as F
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, Callback
+from torch.optim.lr_scheduler import (
+    OneCycleLR,
+    ExponentialLR,
+    CosineAnnealingLR,
+    LinearLR,
+    ChainedScheduler,
+)
+
 
 from dataset import ChessDataset, ValidationDataset
 from module import load_model
@@ -112,7 +120,9 @@ class ChessLightningModule(L.LightningModule):
                 "max_logit": max_logit,
             }
         )
-        return loss1 + self.config["loss_weight"] * loss2
+
+        loss = loss1 + self.config["loss_weight"] * loss2
+        return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         prefix = "val_syn" if dataloader_idx == 0 else "val_real"
@@ -139,71 +149,78 @@ class ChessLightningModule(L.LightningModule):
     def configure_optimizers(self):
         optm = self.config.get("optimizer", "AdamW")
 
-        if optm == "AdamW":
-            optimizer = torch.optim.AdamW(
-                self.parameters(),
-                lr=self.config["lr"],
-                weight_decay=self.config["weight_decay"],
-            )
+        match optm:
+            case "AdamW":
+                optimizer = torch.optim.AdamW(
+                    self.parameters(),
+                    lr=self.config["lr"],
+                    weight_decay=self.config["weight_decay"],
+                )
 
-        elif optm == "SGD":
-            optimizer = torch.optim.SGD(
-                self.parameters(),
-                lr=self.config["lr"],
-                momentum=0.9,
-                weight_decay=self.config["weight_decay"],
-            )
-        else:
-            raise ValueError(f"Unsupported optimizer: {optm}")
+            case "SGD":
+                optimizer = torch.optim.SGD(
+                    self.parameters(),
+                    lr=self.config["lr"],
+                    momentum=0.9,
+                    weight_decay=self.config["weight_decay"],
+                )
+
+            case "Muon":
+                from timm.optim import Muon
+
+                optimizer = Muon(
+                    self.parameters(),
+                    lr=self.config["lr"],
+                    weight_decay=self.config["weight_decay"],
+                    adjust_lr_fn="match_rms_adamw",
+                    nesterov=True,
+                )
+
+            case _:
+                raise ValueError(f"Unsupported optimizer: {optm}")
 
         if self.config["lr_scheduler"] == "constant":
             return optimizer
 
-        from torch.optim.lr_scheduler import (
-            OneCycleLR,
-            ExponentialLR,
-            CosineAnnealingLR,
-            LinearLR,
-            ChainedScheduler,
-        )
+        match self.config["lr_scheduler"]:
+            case "exponential":
+                # gamma = exp(log(0.2) / self.config["epochs"])
+                gamma = 0.85
+                print(f"using gamma: {gamma:.4f}")
+                scheduler = ExponentialLR(optimizer=optimizer, gamma=gamma)
+                interval = "epoch"
 
-        sched = self.config["lr_scheduler"]
-        if sched == "exponential":
-            # gamma = exp(log(0.2) / self.config["epochs"])
-            gamma = 0.85
-            print(f"using gamma: {gamma:.4f}")
-            scheduler = ExponentialLR(optimizer=optimizer, gamma=gamma)
-            interval = "epoch"
-
-        elif sched == "onecycle":
-            scheduler = OneCycleLR(
-                optimizer=optimizer,
-                max_lr=self.config["lr"],
-                total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
-            )
-            interval = "step"
-
-        elif sched == "cosine":
-            schedulers = [
-                LinearLR(optimizer=optimizer, total_iters=1),
-                CosineAnnealingLR(
+            case "onecycle":
+                scheduler = OneCycleLR(
                     optimizer=optimizer,
-                    T_max=self.config["epochs"],
-                ),
-            ]
-            scheduler = ChainedScheduler(schedulers, optimizer)
-            interval = "epoch"
+                    max_lr=self.config["lr"],
+                    total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+                )
+                interval = "step"
 
-        else:
-            raise RuntimeError("unknown scheduler: " + sched)
+            case "cosine":
+                schedulers = [
+                    LinearLR(optimizer=optimizer, total_iters=1),
+                    CosineAnnealingLR(
+                        optimizer=optimizer,
+                        T_max=self.config["epochs"],
+                    ),
+                ]
+                scheduler = ChainedScheduler(schedulers, optimizer)
+                interval = "epoch"
+
+            case _:
+                raise RuntimeError("unknown scheduler: " + sched)
+
+        lr_scheduler = {
+            "scheduler": scheduler,
+            "interval": interval,
+            "frequency": 1,
+        }
 
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": interval,
-                "frequency": 1,
-            },
+            "lr_scheduler": lr_scheduler,
         }
 
 
