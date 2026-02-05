@@ -48,11 +48,13 @@ def main():
 
     print("Running inference...")
 
-    for inp, _, _ in tqdm(ds):
+    for inp, meta, _, _ in tqdm(ds):
         inp = inp[None, ...].cuda()
-        inp_bf16 = inp.bfloat16()
-        p1, d1 = m1(inp_bf16)
-        p2, d2 = m2(inp_bf16)
+        meta = meta[None, ...].cuda()
+        inp_f16 = inp.half()
+        meta_f16 = meta.half()
+        p1, d1 = m1(inp_f16, meta_f16)
+        p2, d2 = m2(inp_f16, meta_f16)
         differences_policy.append(
             total_variation_distance(p1.exp().cpu().numpy(), p2.exp().cpu().numpy())
         )

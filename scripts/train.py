@@ -154,6 +154,8 @@ class ChessLightningModule(L.LightningModule):
                 optimizer = torch.optim.AdamW(
                     self.parameters(),
                     lr=self.config["lr"],
+                    betas=self.config.get("betas"),
+                    # betas=(0.98, 0.9998),
                     weight_decay=self.config["weight_decay"],
                 )
 
@@ -161,7 +163,7 @@ class ChessLightningModule(L.LightningModule):
                 optimizer = torch.optim.SGD(
                     self.parameters(),
                     lr=self.config["lr"],
-                    momentum=0.9,
+                    momentum=self.config.get("momentum"),
                     weight_decay=self.config["weight_decay"],
                 )
 
@@ -173,6 +175,7 @@ class ChessLightningModule(L.LightningModule):
                     lr=self.config["lr"],
                     weight_decay=self.config["weight_decay"],
                     adjust_lr_fn="match_rms_adamw",
+                    betas=self.config.get("betas"),
                     nesterov=True,
                 )
 
@@ -195,6 +198,7 @@ class ChessLightningModule(L.LightningModule):
                     optimizer=optimizer,
                     max_lr=self.config["lr"],
                     total_steps=self.config["steps_per_epoch"] * self.config["epochs"],
+                    pct_start=0.1,
                 )
                 interval = "step"
 
@@ -397,6 +401,8 @@ def main():
         omit=args.omit or None,
         freeze=args.freeze or None,
         resume=args.resume,
+        momentum=0.998,
+        betas=(0.99, 0.999),
     )
 
     module = ChessLightningModule(config)

@@ -248,8 +248,14 @@ def load_model_for_inference(checkpoint, n_res_blocks=None):
 
         sess = ort.InferenceSession(checkpoint)
 
-        def inference(inp):
-            p, v = sess.run(["policy", "value"], {"inp": inp.float().cpu().numpy()})
+        def inference(boards, meta):
+            p, v = sess.run(
+                ["policy", "value"],
+                {
+                    "boards": boards.float().cpu().numpy(),
+                    "meta": meta.float().cpu().numpy(),
+                },
+            )
             return torch.from_numpy(p), torch.from_numpy(v)
 
         return inference
