@@ -111,6 +111,9 @@ def split(args):
             "InsufficientMaterial": "draw",
             "Stalemate": "draw",
             "Unfinished": "draw",
+            "ThreefoldRepetition": "draw",
+            "FivefoldRepetition": "draw",
+            "FiftyMoves": "draw",
         }
     )
     df.dropna(inplace=True)
