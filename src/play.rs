@@ -246,7 +246,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             &state,
             self.n_rollout,
             Some(self.cpuct),
-            true, // absolutely important to generate some noise
+            false, // turn off the dirichlet noice
         );
 
         let num_act_vec: Vec<i32> = cursor

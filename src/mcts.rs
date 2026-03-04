@@ -177,7 +177,7 @@ where
                     Some(noise) => prior
                         .iter()
                         .zip(noise.iter())
-                        .map(|(p, n)| p * 0.75 + *n as f32 * 0.25)
+                        .map(|(p, n)| p * 0.85 + *n as f32 * 0.15)
                         .collect(),
                 }
             };

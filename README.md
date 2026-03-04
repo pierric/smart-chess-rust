@@ -44,3 +44,14 @@ N=500 P=2 ../scripts/run_batch -c path-to-last-pt --cpuct 2.5 --num-steps 150 --
 - maximal 150 steps. Force draw after then.
 - roll out 180 times in each step.
 - cpuct is set to 2.5
+
+### evaluation
+
+To compare two models, it is convenient to let them compete. There is a script to facilitate this task.
+
+```bash
+ROLLOUT=20 TEMPERATURE_SWITCH=8 W=<path-to-checkpoint-1> B=<path-to-checkpoint-2> ../scripts/leader-board
+```
+
+1. Model often has high chance to fall into the same openings when the Dirichlet noise is turned off and the temperate is 0. Particularly in the early models, such openings may favor either WHITE or BLACK regardless of the performance of the model. Therefore, set the temperature to 1 and switch to 0 after the 8th play is a way to mitigate the issue.
+2. It seems effective to use a small number for simulation (20) to see there is a signal of improvement then switch to some bigger number, e.g. 100 to confirm it.
