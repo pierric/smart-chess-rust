@@ -16,6 +16,7 @@ def main():
     psplit.add_argument("-v", "--val", required=True)
     psplit.add_argument("-t", "--train", required=True)
     psplit.add_argument("--factor-draw", type=float, default=1.0)
+    psplit.add_argument("--ignore-repetition", action="store_true", default=False)
     psplit.add_argument(
         "--sample-draw", choices=["sample", "keep-all"], default="sample"
     )
@@ -104,18 +105,22 @@ def split(args):
         return o.get("termination")
 
     df = pd.DataFrame([{"filename": f, "result": _get_result(f)} for f in tqdm(files)])
-    df["result_"] = df["result"].map(
-        {
-            "White": "White",
-            "Black": "Black",
-            "InsufficientMaterial": "draw",
-            "Stalemate": "draw",
-            "Unfinished": "draw",
-            "ThreefoldRepetition": "draw",
-            "FivefoldRepetition": "draw",
-            "FiftyMoves": "draw",
-        }
-    )
+    result_mapping = {
+        "White": "White",
+        "Black": "Black",
+        "InsufficientMaterial": "draw",
+        "Stalemate": "draw",
+        "Unfinished": "draw",
+    }
+    if not args.ignore_repetition:
+        result_mapping.update(
+            {
+                "ThreefoldRepetition": "draw",
+                "FivefoldRepetition": "draw",
+                "FiftyMoves": "draw",
+            }
+        )
+    df["result_"] = df["result"].map(result_mapping)
     df.dropna(inplace=True)
     groups = df.groupby(by="result_")
 
