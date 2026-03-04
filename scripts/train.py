@@ -104,19 +104,22 @@ class ChessLightningModule(L.LightningModule):
 
             gr = (torch.norm(g1) / torch.norm(g2)).detach().cpu().item()
 
+        pi_entropy = -(log_dist_pred.exp() * log_dist_pred).sum(dim=1).mean()
+
         self.log_dict(
             {
                 "loss1": loss1,
                 "loss2": loss2,
                 "loss": loss1 + self.config["loss_weight"] * loss2,
+                "pi_entropy": pi_entropy,
                 "w2": torch.nn.utils.get_total_norm(self.parameters()),
-                "gr": gr,
-                "w2_vh": torch.nn.utils.get_total_norm(
-                    self.model.value_head.parameters()
-                ),
-                "w2_ph": torch.nn.utils.get_total_norm(
-                    self.model.policy_head.parameters()
-                ),
+                # "gr": gr,
+                # "w2_vh": torch.nn.utils.get_total_norm(
+                #    self.model.value_head.parameters()
+                # ),
+                # "w2_ph": torch.nn.utils.get_total_norm(
+                #    self.model.policy_head.parameters()
+                # ),
                 "max_logit": max_logit,
             }
         )
@@ -401,7 +404,7 @@ def main():
         omit=args.omit or None,
         freeze=args.freeze or None,
         resume=args.resume,
-        momentum=0.998,
+        momentum=0.9,
         betas=(0.99, 0.999),
     )
 
