@@ -134,6 +134,7 @@ fn select<'a, G, S>(
     node: &ArcRefNode<S::Step>,
     state: &mut S,
     cpuct: f32,
+    epsilon: f32,
     with_noise: bool,
 ) -> (VecDeque<ArcRefNode<S::Step>>, Vec<S::Step>, f32)
 where
@@ -177,7 +178,7 @@ where
                     Some(noise) => prior
                         .iter()
                         .zip(noise.iter())
-                        .map(|(p, n)| p * 0.85 + *n as f32 * 0.15)
+                        .map(|(p, n)| p * (1.0 - epsilon) + *n as f32 * epsilon)
                         .collect(),
                 }
             };
@@ -239,6 +240,7 @@ pub fn mcts<G, S>(
     state: &S,
     n_rollout: i32,
     cpuct: Option<f32>,
+    epsilon: f32,
     with_noise: bool,
 ) where
     G: Game<S> + ?Sized,
@@ -258,7 +260,8 @@ pub fn mcts<G, S>(
 
     for _ in 0..n_rollout {
         let mut local_state = state.dup();
-        let (mut path, steps, reward) = select(game, node, &mut local_state, cpuct, with_noise);
+        let (mut path, steps, reward) =
+            select(game, node, &mut local_state, cpuct, epsilon, with_noise);
 
         // path points at a leaf node, either game is done, or it isn't finished
         let cur: &Arc<_> = path.back().unwrap();

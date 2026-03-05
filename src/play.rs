@@ -246,6 +246,7 @@ impl<G: game::Game<chess::BoardState>> Player for NNPlayer<G> {
             &state,
             self.n_rollout,
             Some(self.cpuct),
+            0.15,
             false, // turn off the dirichlet noice
         );
 

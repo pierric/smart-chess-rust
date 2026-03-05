@@ -236,6 +236,7 @@ fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32, noise: bool) 
             &state.board,
             rollout,
             Some(cpuct),
+            0.15,
             noise,
         );
     })

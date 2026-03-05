@@ -54,6 +54,9 @@ struct Args {
 
     #[arg(long, default_value_t = 30)]
     temperature_switch: i32,
+
+    #[arg(long, default_value_t = 0.15)]
+    epsilon: f32,
 }
 
 fn main() {
@@ -189,6 +192,7 @@ fn main() {
             &state,
             rollout,
             Some(args.cpuct),
+            args.epsilon,
             true,
         );
 

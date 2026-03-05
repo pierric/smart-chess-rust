@@ -196,6 +196,7 @@ fn debug_trace(chess: backends::py::ChessPy, filename: &str, target_step: usize,
         &state,
         args.rollout_num,
         Some(args.cpuct),
+        0.15,
         true,
     );
 
