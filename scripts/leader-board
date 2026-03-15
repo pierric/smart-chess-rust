@@ -43,6 +43,7 @@ export PREFIX=${PREFIX:-replay}
 
 rotate $PREFIX
 echo "Results are saved in $PREFIX"
+env >"$PREFIX/args"
 parallel --linebuffer -j${P} task {#} "$PREFIX/w_" --rollout=$ROLLOUT --temperature $TEMPERATURE --temperature-switch $TEMPERATURE_SWITCH --cpuct $CPUCT ::: $(seq 1 100)
 
 TMP=${W}
