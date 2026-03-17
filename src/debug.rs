@@ -352,7 +352,7 @@ fn main() {
     // unsafe { backtrace_on_stack_overflow::enable() };
     let args = Args::parse();
 
-    let r = Python::with_gil(|py| {
+    let r = Python::attach(|py| {
         let kwargs = pyo3::types::PyDict::new(py);
         kwargs.set_item("device", "cuda")?;
         kwargs.set_item("checkpoint", &args.checkpoint)?;

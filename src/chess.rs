@@ -6,7 +6,10 @@ use pyo3::conversion::IntoPyObject;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
+use pyo3::CastError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::cmp;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
@@ -15,12 +18,12 @@ use std::hash::{Hash, Hasher};
 use std::ops::Not;
 
 use crate::{game, knightmoves, mcts, queenmoves, underpromotions};
-use mcts::{ArcRefNode, Cursor};
+use mcts::{ArcRefNode, Cursor, Node};
 
 pub const LOOKBACK: usize = 8;
 
 static CHESS_MODULE: Lazy<Py<PyModule>> =
-    Lazy::new(|| Python::with_gil(|py| py.import("chess").unwrap().into()));
+    Lazy::new(|| Python::attach(|py| py.import("chess").unwrap().into()));
 
 #[derive(Debug)]
 pub enum EncodeError {
@@ -145,8 +148,10 @@ impl From<i32> for Color {
     }
 }
 
-impl<'a> FromPyObject<'a> for PieceType {
-    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+impl<'a> FromPyObject<'_, 'a> for PieceType {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'a, PyAny>) -> Result<Self, Self::Error> {
         return obj.extract::<i32>().map(|v| v.into());
     }
 }
@@ -161,8 +166,10 @@ impl<'a> IntoPyObject<'a> for PieceType {
     }
 }
 
-impl<'a> FromPyObject<'a> for Color {
-    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+impl<'a> FromPyObject<'_, 'a> for Color {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'a, PyAny>) -> Result<Self, Self::Error> {
         return obj.extract::<i32>().map(|v| v.into());
     }
 }
@@ -178,8 +185,10 @@ impl<'a> IntoPyObject<'a> for Color {
     }
 }
 
-impl<'a> FromPyObject<'a> for Move {
-    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+impl<'a> FromPyObject<'_, 'a> for Move {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'a, PyAny>) -> Result<Self, Self::Error> {
         let py = obj.py();
         let from = obj
             .getattr(intern!(py, "from_square"))
@@ -275,8 +284,10 @@ impl<'a> IntoPyObject<'a> for Step {
     }
 }
 
-impl<'a> FromPyObject<'a> for Square {
-    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+impl<'a> FromPyObject<'_, 'a> for Square {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'a, PyAny>) -> Result<Self, Self::Error> {
         let square: i32 = obj.extract()?;
         let file = square & 7;
         let rank = square >> 3;
@@ -317,8 +328,10 @@ impl From<i32> for Termination {
     }
 }
 
-impl<'a> FromPyObject<'a> for Termination {
-    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+impl<'a> FromPyObject<'_, 'a> for Termination {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'a, PyAny>) -> Result<Self, Self::Error> {
         return obj
             .getattr(intern!(obj.py(), "value"))?
             .extract::<i32>()
@@ -326,8 +339,10 @@ impl<'a> FromPyObject<'a> for Termination {
     }
 }
 
-impl<'a> FromPyObject<'a> for Outcome {
-    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+impl<'a> FromPyObject<'_, 'a> for Outcome {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'a, PyAny>) -> Result<Self, Self::Error> {
         let py = obj.py();
         let term = obj.getattr(intern!(py, "termination"))?.extract()?;
         let winner = obj.getattr(intern!(py, "winner"))?.extract()?;
@@ -338,8 +353,10 @@ impl<'a> FromPyObject<'a> for Outcome {
     }
 }
 
-impl<'a> FromPyObject<'a> for Board {
-    fn extract_bound(obj: &Bound<'a, PyAny>) -> Result<Self, PyErr> {
+impl<'a> FromPyObject<'_, 'a> for Board {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'a, PyAny>) -> Result<Self, Self::Error> {
         let py = obj.py();
 
         let turn: i32 = obj.getattr(intern!(py, "turn"))?.extract()?;
@@ -348,7 +365,7 @@ impl<'a> FromPyObject<'a> for Board {
         let fullmove_number = obj.getattr(intern!(py, "fullmove_number"))?.extract()?;
         let piece_map: Bound<'a, PyDict> = obj
             .call_method0(intern!(py, "piece_map"))?
-            .downcast_into()
+            .cast_into()
             .map_err(PyErr::from)?;
         let piece_map = piece_map
             .iter()
@@ -502,7 +519,7 @@ impl Move {
     }
 
     pub fn from_uci(uci: &str) -> Self {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             CHESS_MODULE
                 .bind(py)
                 .getattr("Move")
@@ -647,26 +664,26 @@ impl Board {
 
 impl BoardState {
     pub fn new() -> Self {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let board = CHESS_MODULE
                 .bind(py)
                 .getattr("Board")
                 .and_then(|board| board.call0())
                 .unwrap();
             return Self {
-                python_object: PyObject::from(board),
+                python_object: Py::<PyAny>::from(board),
             };
         })
     }
 
     #[allow(dead_code)]
     pub fn from_fen(fen: &str) -> Option<Self> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             CHESS_MODULE
                 .bind(py)
                 .getattr("Board")
                 .and_then(|cls| cls.call1((fen,)))
-                .and_then(|obj| obj.extract())
+                .and_then(|obj| obj.extract().map_err(|e: CastError<'_, '_>| e.into()))
                 .ok()
                 .map(|o| Self { python_object: o })
         })
@@ -674,7 +691,7 @@ impl BoardState {
 
     #[allow(dead_code)]
     pub fn turn(&self) -> Color {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.python_object
                 .getattr(py, intern!(py, "turn"))
                 .unwrap()
@@ -685,12 +702,12 @@ impl BoardState {
     }
 
     pub fn to_board(&self) -> Board {
-        Python::with_gil(|py| self.python_object.extract(py).unwrap())
+        Python::attach(|py| self.python_object.extract(py).unwrap())
     }
 
     #[allow(dead_code)]
     pub fn fen(&self) -> String {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let res = self
                 .python_object
                 .call_method0(py, intern!(py, "fen"))
@@ -700,7 +717,7 @@ impl BoardState {
     }
 
     pub fn outcome(&self) -> Option<Outcome> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let kwargs = PyDict::new(py);
             kwargs.set_item("claim_draw", true)?;
             let res =
@@ -713,7 +730,7 @@ impl BoardState {
 
     #[allow(dead_code)]
     pub fn prev(&mut self) -> Option<Move> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.python_object
                 .call_method0(py, intern!(py, "pop"))
                 .and_then(|o| o.extract(py))
@@ -722,7 +739,7 @@ impl BoardState {
     }
 
     pub fn next(&mut self, mov: &Move) {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             mov.into_pyobject(py).map_err(PyErr::from).and_then(|m| {
                 self.python_object
                     .call_method1(py, intern!(py, "push"), (m,))
@@ -732,7 +749,7 @@ impl BoardState {
     }
 
     pub fn legal_moves(&self) -> Vec<Move> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let locals = [("board", &self.python_object)].into_py_dict(py)?;
             py.eval(c_str!("list(board.legal_moves)"), None, Some(&locals))
                 .unwrap()
@@ -742,7 +759,7 @@ impl BoardState {
     }
 
     pub fn move_stack(&self) -> Vec<Move> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.python_object
                 .getattr(py, intern!(py, "move_stack"))
                 .unwrap()
@@ -756,7 +773,7 @@ impl game::State for BoardState {
     type Step = Step;
 
     fn dup(&self) -> Self {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             return Self {
                 python_object: self
                     .python_object
@@ -771,7 +788,7 @@ impl game::State for BoardState {
     }
 
     //fn legal_moves(&self) -> Vec<Self::Step> {
-    //    Python::with_gil(|py| {
+    //    Python::attach(|py| {
     //        let locals = [("board", &self.python_object)].into_py_dict(py)?;
     //        let mov: Vec<Move> = py
     //            .eval(c_str!("list(board.legal_moves)"), None, Some(&locals))
@@ -849,7 +866,10 @@ pub fn _encode(node: &ArcRefNode<Step>, state: &BoardState) -> (Array3<i8>, Arra
         }
     }
 
-    let turn = node.borrow().step.1;
+    let turn = <ArcRefNode<Step> as Borrow<RefCell<Node<Step>>>>::borrow(node)
+        .borrow()
+        .step
+        .1;
     let encoded_boards = history.view(turn == Color::Black);
     let encoded_meta = current_board.encode_meta();
 

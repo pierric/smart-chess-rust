@@ -396,7 +396,6 @@ fn main() {
     ort::init()
         .with_execution_providers([
             CUDAExecutionProvider::default().build(),
-            ROCmExecutionProvider::default().build(),
             MIGraphXExecutionProvider::default().build(),
         ])
         .commit()

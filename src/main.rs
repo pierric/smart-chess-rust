@@ -133,7 +133,7 @@ fn main() {
     //use c_str_macro::c_str;
     //    let chess = game::Chess {
     //        model: {
-    //            Python::with_gil(|py| {
+    //            Python::attach(|py| {
     //                let code = c_str!(r#"
     //mod = nn.ChessModule19().cuda()
     //mod.load_state_dict(torch.load(checkpoint), strict=True)
