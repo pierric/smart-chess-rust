@@ -1,5 +1,5 @@
 use clap::Parser;
-use ort::execution_providers::*;
+use ort::ep::*;
 use std::path::Path;
 // use std::{thread, time};
 
@@ -105,12 +105,11 @@ fn main() {
                 //}
                 ort::init()
                     .with_execution_providers([
-                        CUDAExecutionProvider::default().build(),
-                        ROCmExecutionProvider::default().build(),
-                        MIGraphXExecutionProvider::default().build(),
+                        CUDA::default().build(),
+                        MIGraphX::default().build(),
+                        CoreML::default().build(),
                     ])
-                    .commit()
-                    .unwrap();
+                    .commit();
                 let session = ort::session::Session::builder()
                     .unwrap()
                     .commit_from_file(args.checkpoint)

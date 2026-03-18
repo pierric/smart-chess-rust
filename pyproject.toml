@@ -1,33 +1,32 @@
-[tool.poetry]
-package-mode = false
+[project]
+name = ""
+version = "0.0.1"
+requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "chess==1.11.1",
+    "lightning[extra]==2.5.0",
+    "matplotlib==3.8.2",
+    "numpy==1.26.2",
+    "onnx>=1.15.0,<2",
+    "sympy>=1.12,<2",
+    "tensorboard>=2.15.1,<3",
+    "timm>=1.0.21,<2",
+    "torch",
+    "torchvision",
+    "pytorch-triton-rocm",
+    "pandas>=2.2.3,<3",
+    "ipython>=8.31.0,<9",
+    "jupyterlab>=4.3.4,<5",
+    "jina>=3.33.1,<4",
+]
 
-[[tool.poetry.source]]
-name = "pytorch-rocm"
-url = "https://download.pytorch.org/whl/nightly/rocm6.4"
-priority = "explicit"
-
-[tool.poetry.dependencies]
-python = "~3.12"
-chess = "1.11.1"
-lightning = { version = "2.5.0", extras = ["extra"] }
-matplotlib = "3.8.2"
-numpy = "1.26.2"
-onnx = "^1.15.0"
-sympy = "^1.12"
-tensorboard = "^2.15.1"
-timm = "^1.0.21"
-#torch = { version = "2.8.0.dev20250517", source = "pytorch-rocm" }
-#torchvision = { version = "0.22.0.dev20250517", source = "pytorch-rocm" }
-#pytorch-triton-rocm = { version = "3.3.0", source = "pytorch-rocm" }
-torch = { url = "https://download.pytorch.org/whl/nightly/rocm6.4/torch-2.8.0.dev20250517%2Brocm6.4-cp312-cp312-manylinux_2_28_x86_64.whl" }
-torchvision = { url = "https://download.pytorch.org/whl/nightly/rocm6.4/torchvision-0.22.0.dev20250517%2Brocm6.4-cp312-cp312-manylinux_2_28_x86_64.whl" }
-pytorch-triton-rocm = { url = "https://download.pytorch.org/whl/nightly/pytorch_triton_rocm-3.3.0%2Bgit96316ce5-cp312-cp312-linux_x86_64.whl" }
-#torch-tensorrt = { url = "https://download.pytorch.org/whl/cu121/torch_tensorrt-2.3.0%2Bcu121-cp312-cp312-linux_x86_64.whl" }
-pandas = "^2.2.3"
-ipython = "^8.31.0"
-jupyterlab = "^4.3.4"
-jina = "^3.33.1"
+[tool.uv]
+package = false
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.10.7,<0.11.0"]
+build-backend = "uv_build"
