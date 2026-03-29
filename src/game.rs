@@ -16,11 +16,6 @@ where
     fn reverse_q(&self, node: &ArcRefNode<S::Step>) -> bool;
 }
 
-pub trait TchModel {
-    fn forward(&self, input: Tensor) -> (Tensor, Tensor);
-    fn device(&self) -> tch::Device;
-}
-
 pub trait State {
     type Step;
     fn dup(&self) -> Self;

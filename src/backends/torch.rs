@@ -1,10 +1,14 @@
-use short_uuid::ShortUuid;
 use tch::Tensor;
 
 use crate::chess::post_process_distr;
 use crate::chess::{BoardState, Color, Move, Step, _encode};
-use crate::game::{prepare_tensors, tensor_to_f32, Game, TchModel};
+use crate::game::{tensor_to_f32, Game};
 use crate::mcts::ArcRefNode;
+
+pub trait TchModel {
+    fn forward(&self, inp1: Tensor, inp2: Tensor) -> (Tensor, Tensor);
+    fn device(&self) -> tch::Device;
+}
 
 #[allow(dead_code)]
 pub struct ChessTS {
@@ -19,10 +23,10 @@ pub struct ChessEP {
 }
 
 impl TchModel for ChessTS {
-    fn forward(&self, inp: Tensor) -> (Tensor, Tensor) {
+    fn forward(&self, inp1: Tensor, inp2: Tensor) -> (Tensor, Tensor) {
         let out = self
             .model
-            .forward_is(&[tch::jit::IValue::from(inp)])
+            .forward_is(&[tch::jit::IValue::from(inp1), tch::jit::IValue::from(inp2)])
             .unwrap();
         <(Tensor, Tensor)>::try_from(out).unwrap()
     }
@@ -50,8 +54,8 @@ impl Game<BoardState> for ChessTS {
 
 #[cfg(feature = "aotinductor")]
 impl TchModel for ChessEP {
-    fn forward(&self, inp: Tensor) -> (Tensor, Tensor) {
-        let outs = self.model.run(&vec![inp]);
+    fn forward(&self, inp1: Tensor, inp2: Tensor) -> (Tensor, Tensor) {
+        let outs = self.model.run(&vec![inp1, inp2]);
         assert!(outs.len() == 2);
         let mut iter = outs.into_iter();
         let r1 = iter.next().unwrap();
@@ -106,19 +110,28 @@ pub fn chess_tch_predict<M: TchModel>(
 
     assert!(turn == state.turn());
 
-    let inp = prepare_tensors(encoded_boards, encoded_meta, chess.device());
-    let inp_debug = inp.alias_copy();
+    let device = chess.device();
 
-    let (full_distr, score) = chess.forward(inp);
+    let encoded_boards = Tensor::try_from(encoded_boards)
+        .unwrap()
+        .to_device_(device, tch::Kind::BFloat16, true, false)
+        .permute([2, 0, 1])
+        .unsqueeze(0);
+    let encoded_meta = Tensor::try_from(encoded_meta)
+        .unwrap()
+        .to_device_(device, tch::Kind::BFloat16, true, false)
+        .unsqueeze(0);
+
+    let (full_distr, score) = chess.forward(encoded_boards, encoded_meta);
 
     let score = tensor_to_f32(score).unwrap();
 
     if !score.is_finite() {
-        let uuid = ShortUuid::generate();
-        let filename = format!("/tmp/{}.tensor", uuid);
-        inp_debug.save(std::path::Path::new(&filename)).unwrap();
+        //let uuid = ShortUuid::generate();
+        //let filename = format!("/tmp/{}.tensor", uuid);
+        //inp_debug.save(std::path::Path::new(&filename)).unwrap();
         println!("Warning: score is bad {:?}", score);
-        println!("input tensor is saved as {}", filename);
+        //println!("input tensor is saved as {}", filename);
     }
 
     let moves_distr = _get_move_distribution(full_distr, turn, &legal_moves, return_full_distr);
