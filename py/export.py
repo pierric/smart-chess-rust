@@ -5,55 +5,6 @@ from contextlib import contextmanager
 import torch
 
 
-def export_ptq(model, *, output, calib):
-    import pytorch_quantization
-    import pytorch_quantization.quant_modules
-    from itertools import islice
-    from dataset import ChessDataset
-    from torch.utils.data import ConcatDataset, DataLoader
-
-    pytorch_quantization.quant_modules.initialize()
-
-    for name, module in model.named_modules():
-        if name.endswith("_quantizer"):
-            module.enable_calib()
-            module.disable_quant()
-
-    dss = ConcatDataset([ChessDataset(trace_file) for trace_file in calib])
-    train_loader = DataLoader(
-        dss, num_workers=4, batch_size=1, shuffle=True, drop_last=True
-    )
-    for example in islice(train_loader, 50):
-        model(example[0])
-
-    for name, module in model.named_modules():
-        if name.endswith("_quantizer"):
-            module.load_calib_amax()
-            module.disable_calib()
-            module.enable_quant()
-
-    model = model.cuda()
-
-    dummy_input = torch.randn(1, 119, 8, 8, dtype=torch.float32, device="cuda")
-
-    with pytorch_quantization.enable_nonnx_export():
-        # enable_onnx_checker needs to be disabled. See notes below.
-        torch.onnx.export(
-            model,
-            dummy_input,
-            output,
-            # verbose=True,
-            input_names=["inp"],
-            output_names=["policy", "value"],
-        )
-
-    #
-    ## NOT possible to export to a torchscript
-    #
-    # model_jit = torch.jit.trace(model, [dummy_input])
-    # torch.jit.save(model_jit, output)
-
-
 def export_fp16(model, *, output):
     # assuming the model was trained with AMP
     x = torch.randn(1, 119, 8, 8, dtype=torch.float32).cuda()
@@ -82,23 +33,25 @@ def export_fp16(model, *, output):
     torch.jit.save(model_jit, output)
 
 
-def export_pt_f32(model, *, inp_shape, device, output):
-    x = torch.randn(1, *inp_shape).to(device=device)
+def export_pt_f32(model, *, inp_shapes, device, output):
+    inp1 = torch.randn(1, *inp_shapes[0], dtype=torch.float32).to(device=device)
+    inp2 = torch.randn(1, *inp_shapes[1], dtype=torch.float32).to(device=device)
 
     with torch.no_grad():
-        model_jit = torch.jit.trace(model, [x])
+        model_jit = torch.jit.trace(model, [inp1, inp2])
         model_jit = torch.jit.optimize_for_inference(model_jit)
 
     torch.jit.save(model_jit, output)
 
 
-def export_pt_bf16(model, *, inp_shape, device, output):
+def export_pt_bf16(model, *, inp_shapes, device, output):
     # assuming the model was trained with AMP
 
     # model_jit = torch.jit.script(model)
     # model_jit = torch.jit.optimize_for_inference(model_jit)
 
-    x = torch.randn(1, *inp_shape).to(device=device)
+    inp1 = torch.randn(1, *inp_shapes[0], dtype=torch.float32).to(device=device)
+    inp2 = torch.randn(1, *inp_shapes[1], dtype=torch.float32).to(device=device)
 
     with torch.no_grad():
         # cache_enabled is critical to "trace" to the model
@@ -106,13 +59,13 @@ def export_pt_bf16(model, *, inp_shape, device, output):
         with torch.autocast(
             device_type=device, dtype=torch.bfloat16, cache_enabled=False
         ):
-            model_jit = torch.jit.trace(model, [x])
+            model_jit = torch.jit.trace(model, [inp1, inp2])
             model_jit = torch.jit.optimize_for_inference(model_jit)
 
     torch.jit.save(model_jit, output)
 
 
-def export_pt2_bf16(model, *, inp_shape, device, output):
+def export_pt2_bf16(model, *, inp_shapes, device, output):
     inductor_configs = {
         "conv_1x1_as_mm": True,
         "epilogue_fusion": False,
@@ -127,7 +80,8 @@ def export_pt2_bf16(model, *, inp_shape, device, output):
 
     # fix the batch dim to be 1. There is some wierd restriction
     # with torch.export.Dim, the batch dim can be anything other than 1
-    x = torch.randn(2, *inp_shape, dtype=torch.bfloat16).to(device=device)
+    inp1 = torch.randn(1, *inp_shapes[0], dtype=torch.float32).to(device=device)
+    inp2 = torch.randn(1, *inp_shapes[1], dtype=torch.float32).to(device=device)
     batch = torch.export.Dim("batch")
 
     with torch.no_grad():
@@ -135,7 +89,7 @@ def export_pt2_bf16(model, *, inp_shape, device, output):
             device_type=device, dtype=torch.bfloat16, cache_enabled=False
         ):
             ep = torch.export.export(
-                model, args=(x,), dynamic_shapes=({0: batch},), strict=True
+                model, args=(inp1, inp2), dynamic_shapes=({0: batch},), strict=True
             )
             # torch.export.save(ep, "/tmp/exported.pt2")
             torch._inductor.aoti_compile_and_package(
@@ -185,3 +139,25 @@ def export_onnx(model, *, inp_shapes, device, output, fp16):
             keep_io_types=True,
         )
         onnx.save(model, output)
+
+
+def export_onnx2(model, *, inp_shapes, device, output, fp16):
+    inp1 = torch.randn(1, *inp_shapes[0], dtype=torch.float32).to(device=device)
+    inp2 = torch.randn(1, *inp_shapes[1], dtype=torch.float32).to(device=device)
+
+    with torch.autocast(enabled=fp16, device_type=device):
+        torch.onnx.export(
+            model,
+            (inp1, inp2),
+            output,
+            opset_version=18,
+            export_params=True,
+            do_constant_folding=True,
+            dynamo=True,
+            input_names=["boards", "meta"],
+            output_names=["policy", "value"],
+            dynamic_axes={
+                "boards": {0: "batch_size"},
+                "meta": {0: "batch_size"},
+            },
+        )
