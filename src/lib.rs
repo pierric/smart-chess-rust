@@ -25,6 +25,15 @@ mod docarray {
     tonic::include_proto!("docarray");
 }
 
+type PyObject = Py<PyAny>;
+
+unsafe fn capsule_to_state<'a>(
+    py: Python<'a>,
+    capsule: Py<PyCapsule>,
+) -> Result<&'a RefCell<ChessEngineState>, PyErr> {
+    Ok(capsule.bind(py).pointer_checked(None)?.cast().as_ref())
+}
+
 #[pyfunction]
 fn chess_encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
     Ok(if turn == chess::Color::Black {
@@ -44,7 +53,7 @@ fn chess_encode_steps(
 
     let mut ret = Vec::new();
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         for (next_mov, num_act) in steps.iter() {
             let num_act_dict: HashMap<chess::Move, u32> = num_act.iter().cloned().collect();
 
@@ -120,7 +129,7 @@ fn chess_encode_steps(
 
 #[pyfunction]
 fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyObject, PyObject)> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let board = if view == chess::Color::White {
             board
         } else {
@@ -215,7 +224,7 @@ fn chess_play_new(
         cursor: cursor,
     });
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let capsule = PyCapsule::new(py, state, None).unwrap();
         Ok(capsule.unbind().into_any())
     })
@@ -223,13 +232,8 @@ fn chess_play_new(
 
 #[pyfunction]
 fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32, noise: bool) {
-    Python::with_gil(|py| {
-        let state = unsafe {
-            state
-                .bind(py)
-                .reference::<RefCell<ChessEngineState>>()
-                .borrow_mut()
-        };
+    Python::attach(|py| {
+        let state = unsafe { capsule_to_state(py, state).unwrap().borrow() };
         mcts::mcts(
             &mut *state.chess.borrow_mut(),
             state.cursor.arc(),
@@ -244,13 +248,8 @@ fn chess_play_mcts(state: Py<PyCapsule>, rollout: i32, cpuct: f32, noise: bool) 
 
 #[pyfunction]
 fn chess_play_step(state: Py<PyCapsule>, temp: f32) {
-    Python::with_gil(|py| {
-        let state = unsafe {
-            state
-                .bind(py)
-                .reference::<RefCell<ChessEngineState>>()
-                .borrow_mut()
-        };
+    Python::attach(|py| {
+        let state = unsafe { capsule_to_state(py, state).unwrap().borrow_mut() };
         let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
         mcts::step(&mut *cursor, &mut *board, temp);
     })
@@ -258,13 +257,8 @@ fn chess_play_step(state: Py<PyCapsule>, temp: f32) {
 
 #[pyfunction]
 fn chess_play_apply_move(state: Py<PyCapsule>, mov: chess::Move) {
-    Python::with_gil(|py| {
-        let state = unsafe {
-            state
-                .bind(py)
-                .reference::<RefCell<ChessEngineState>>()
-                .borrow_mut()
-        };
+    Python::attach(|py| {
+        let state = unsafe { capsule_to_state(py, state).unwrap().borrow_mut() };
         let (mut cursor, mut board) = RefMut::map_split(state, |o| (&mut o.cursor, &mut o.board));
         board.next(&mov);
         let child = {
@@ -285,13 +279,8 @@ fn chess_play_apply_move(state: Py<PyCapsule>, mov: chess::Move) {
 
 #[pyfunction]
 fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject, PyObject)> {
-    Python::with_gil(|py| {
-        let state = unsafe {
-            state
-                .bind(py)
-                .reference::<RefCell<ChessEngineState>>()
-                .borrow()
-        };
+    Python::attach(|py| {
+        let state = unsafe { capsule_to_state(py, state).unwrap().borrow() };
         let board = Py::clone_ref(&state.board.python_object, py);
         let node = state.cursor.current();
         let q_value = node.q_value;
@@ -328,13 +317,8 @@ fn chess_play_inspect(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyO
 
 #[pyfunction]
 fn chess_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
-    Python::with_gil(|py| {
-        let state = unsafe {
-            state
-                .bind(py)
-                .reference::<RefCell<ChessEngineState>>()
-                .borrow()
-        };
+    Python::attach(|py| {
+        let state = unsafe { capsule_to_state(py, state).unwrap().borrow() };
         let json = serde_json::to_string(&*state.root.borrow()).unwrap();
         let json_module = py.import("json")?;
         let ret = json_module.getattr("loads")?.call1((json,))?.unbind();
@@ -344,14 +328,8 @@ fn chess_play_dump_search_tree(state: Py<PyCapsule>) -> PyResult<PyObject> {
 
 #[pyfunction]
 fn chess_play_inference(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, PyObject)> {
-    Python::with_gil(|py| {
-        let state = unsafe {
-            state
-                .bind(py)
-                .reference::<RefCell<ChessEngineState>>()
-                .borrow()
-        };
-
+    Python::attach(|py| {
+        let state = unsafe { capsule_to_state(py, state).unwrap().borrow() };
         let (steps, prior, outcome) =
             state
                 .chess
@@ -366,13 +344,8 @@ fn chess_play_inference(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject, P
 
 #[pyfunction]
 fn chess_play_encode(state: Py<PyCapsule>) -> PyResult<(PyObject, PyObject)> {
-    Python::with_gil(|py| {
-        let state = unsafe {
-            state
-                .bind(py)
-                .reference::<RefCell<ChessEngineState>>()
-                .borrow()
-        };
+    Python::attach(|py| {
+        let state = unsafe { capsule_to_state(py, state).unwrap().borrow() };
         use crate::chess::_encode;
         let (encoded_boards, encoded_meta) = _encode(&state.cursor.arc(), &state.board);
         let encoded_boards: Bound<'_, PyArray3<i8>> = PyArray3::from_array(py, &encoded_boards);

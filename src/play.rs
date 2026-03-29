@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use ort::execution_providers::*;
+use ort::ep::*;
 use rand::distributions::Distribution;
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
@@ -395,12 +395,11 @@ fn main() {
 
     ort::init()
         .with_execution_providers([
-            CUDAExecutionProvider::default().build(),
-            ROCmExecutionProvider::default().build(),
-            MIGraphXExecutionProvider::default().build(),
+            CUDA::default().build(),
+            MIGraphX::default().build(),
+            CoreML::default().build(),
         ])
-        .commit()
-        .unwrap();
+        .commit();
 
     let mut args = Args::parse();
 

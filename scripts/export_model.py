@@ -16,12 +16,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--checkpoint", type=str)
     parser.add_argument(
-        "-m", "--mode", choices=["bf16", "fp16", "ptq", "simple"], default="simple"
+        "-m", "--mode", choices=["bf16", "fp16", "simple"], default="simple"
     )
     parser.add_argument("-f", "--format", choices=["onnx", "pt", "pt2"], default="pt2")
     parser.add_argument("-n", "--n-res-blocks", type=int, required=False)
     parser.add_argument("-d", "--device", choices=["cuda", "mps"], default="cuda")
-    parser.add_argument("--calib", nargs="*")
     args = parser.parse_args()
 
     assert args.n_res_blocks is not None
@@ -44,7 +43,6 @@ def main():
         ("bf16", "pt2"): lambda: export.export_pt2_bf16,
         ("simple", "onnx"): lambda: partial(export.export_onnx, fp16=False),
         ("fp16", "onnx"): lambda: partial(export.export_onnx, fp16=True),
-        ("ptq", "onnx"): lambda: partial(export.export_ptq, calib=args.calib),
     }
 
     stamm, _ = os.path.splitext(args.checkpoint)

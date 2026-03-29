@@ -69,7 +69,7 @@ fn call_py_model(
     turn: Color,
     steps: &Vec<Move>,
 ) -> (Vec<f32>, f32) {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let encoded_boards = PyArray3::from_array(py, &boards);
         let encoded_meta = PyArray1::from_array(py, &meta);
 
@@ -100,11 +100,8 @@ ret_score = ret_score.detach().cpu().item()
         .into_py_dict(py)?;
         py.run(code, None, Some(&locals))?;
 
-        let full_distr: Bound<'_, PyArray1<f32>> = locals
-            .get_item("ret_distr")
-            .unwrap()
-            .unwrap()
-            .downcast_into()?;
+        let full_distr: Bound<'_, PyArray1<f32>> =
+            locals.get_item("ret_distr").unwrap().unwrap().cast_into()?;
 
         // how good is the current board for the next player (turn)
         // This must be in sync with that in training script
@@ -112,7 +109,7 @@ ret_score = ret_score.detach().cpu().item()
             .get_item("ret_score")
             .unwrap()
             .unwrap()
-            .downcast()?
+            .cast_into()?
             .extract()?;
 
         // rotate if the next move is black

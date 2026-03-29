@@ -32,7 +32,7 @@ pub fn encode(mov: &Move) -> Result<i32, EncodeError> {
     let move_type = _TYPE_OFFSET + underpromotion_type;
     return Ok(mov.from.rank * 8 * 73 + mov.from.file * 73 + move_type);
 
-    //     Python::with_gil(|py| {
+    //     Python::attach(|py| {
     //         let np = match py.import("numpy") {
     //             Ok(np) => np,
     //             Err(e) => return Err(EncodeError::PythonError(e)),
