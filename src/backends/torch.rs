@@ -2,7 +2,7 @@ use tch::Tensor;
 
 use crate::chess::post_process_distr;
 use crate::chess::{BoardState, Color, Move, Step, _encode};
-use crate::game::{tensor_to_f32, Game};
+use crate::game::Game;
 use crate::mcts::ArcRefNode;
 
 pub trait TchModel {
@@ -172,4 +172,9 @@ fn _get_move_distribution(
         let encoded_moves = Tensor::from_slice(&encoded_moves);
         Vec::<f32>::try_from(full_distr.take(&encoded_moves).exp()).unwrap()
     }
+}
+
+fn tensor_to_f32(t: Tensor) -> Option<f32> {
+    let v = t.to_dtype(tch::Kind::Float, true, false);
+    f32::try_from(&v).ok()
 }
