@@ -5,9 +5,10 @@ from contextlib import contextmanager
 import torch
 
 
-def export_fp16(model, *, output):
+def export_fp16(model, *, inp_shapes, device, output):
     # assuming the model was trained with AMP
-    x = torch.randn(1, 119, 8, 8, dtype=torch.float32).cuda()
+    inp1 = torch.randn(1, *inp_shapes[0], dtype=torch.float32).to(device=device)
+    inp2 = torch.randn(1, *inp_shapes[1], dtype=torch.float32).to(device=device)
 
     with torch.no_grad():
         # cache_enabled is critical to "trace" to the model
@@ -15,7 +16,7 @@ def export_fp16(model, *, output):
         with torch.autocast(
             device_type="cuda", dtype=torch.float16, cache_enabled=False
         ):
-            model_jit = torch.jit.trace(model, [x])
+            model_jit = torch.jit.trace(model, [inp1, inp2])
             # model_jit = torch.jit.freeze(model_jit)
             model_jit = torch.jit.optimize_for_inference(model_jit)
 
