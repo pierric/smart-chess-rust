@@ -1,5 +1,4 @@
 use clap::{Parser, ValueEnum};
-use ort::execution_providers::*;
 use rand::distributions::Distribution;
 use rand::distributions::WeightedIndex;
 use rand::{thread_rng, Rng};
@@ -211,6 +210,7 @@ impl NNPlayer<backends::torch::ChessEP> {
     }
 }
 
+#[cfg(feature = "onnx")]
 impl NNPlayer<ChessOnnx> {
     fn load(
         _device: &str,
@@ -393,13 +393,16 @@ fn main() {
         //}
     }
 
-    ort::init()
-        .with_execution_providers([
-            CUDAExecutionProvider::default().build(),
-            MIGraphXExecutionProvider::default().build(),
-            CoreMLExecutionProvider::default().build(),
-        ])
-        .commit().unwrap();
+    if cfg!(feature = "onnx") {
+        use ort::execution_providers::*;
+        ort::init()
+            .with_execution_providers([
+                CUDAExecutionProvider::default().build(),
+                MIGraphXExecutionProvider::default().build(),
+                CoreMLExecutionProvider::default().build(),
+            ])
+            .commit().unwrap();
+    }
 
     let mut args = Args::parse();
 
