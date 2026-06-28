@@ -1,5 +1,4 @@
 use clap::Parser;
-use ort::execution_providers::*;
 use std::path::Path;
 // use std::{thread, time};
 
@@ -97,12 +96,14 @@ fn main() {
                 model: aotinductor::ModelPackage::new(&args.checkpoint).unwrap(),
                 device: device,
             }),
+            #[cfg(feature = "onnx")]
             Some("onnx") => {
                 //let rocm = ROCmExecutionProvider::default();
                 //if !rocm.is_available().unwrap() {
                 //    eprintln!("Please compile ONNX Runtime with ROCm!");
                 //    std::process::exit(1);
                 //}
+                use ort::execution_providers::*;
                 ort::init()
                     .with_execution_providers([
                         CUDAExecutionProvider::default().build(),

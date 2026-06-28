@@ -27,13 +27,6 @@ mod docarray {
 
 type PyObject = Py<PyAny>;
 
-unsafe fn capsule_to_state<'a>(
-    py: Python<'a>,
-    capsule: Py<PyCapsule>,
-) -> Result<&'a RefCell<ChessEngineState>, PyErr> {
-    Ok(capsule.bind(py).pointer_checked(None)?.cast().as_ref())
-}
-
 #[pyfunction]
 fn chess_encode_move(turn: chess::Color, mov: chess::Move) -> PyResult<i32> {
     Ok(if turn == chess::Color::Black {
@@ -146,8 +139,8 @@ fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyOb
 }
 
 #[allow(dead_code)]
-struct ChessEngineState {
-    chess: RefCell<backends::onnx::ChessOnnx>,
+struct ChessEngineStateGeneric<T: Game> {
+    chess: RefCell<T>,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
@@ -156,7 +149,16 @@ struct ChessEngineState {
 // NOTE: it is not possible to be Send safely without adding locks, as the cursor part
 // carries mutable data. But for the use case, it is just right to fake a Send impl,
 // so that we can wrap it into a PyCapsule.
-unsafe impl Send for ChessEngineState {}
+unsafe impl<T: Game> Send for ChessEngineStateGeneric<T> {}
+
+type ChessEngineState = ChessEngineStateGeneric<backends::torch::ChessTS>
+
+unsafe fn capsule_to_state<'a>(
+    py: Python<'a>,
+    capsule: Py<PyCapsule>,
+) -> Result<&'a RefCell<ChessEngineState>, PyErr> {
+    Ok(capsule.bind(py).pointer_checked(None)?.cast().as_ref())
+}
 
 #[pyfunction]
 fn chess_play_new(
@@ -171,21 +173,21 @@ fn chess_play_new(
         _ => todo!("Unsupported device name"),
     };
 
-    //let chess = chess::ChessTS {
-    //    model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
-    //    device: device,
-    //};
+    let chess = chess::ChessTS {
+        model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
+        device: device,
+    };
     //let chess = backends::torch::ChessEP {
     //    model: aotinductor::ModelPackage::new(checkpoint).unwrap(),
     //    device: device,
     //};
-    let session = ort::session::Session::builder()
-        .unwrap()
-        .commit_from_file(checkpoint)
-        .unwrap();
-    let chess = backends::onnx::ChessOnnx {
-        session: std::cell::RefCell::new(session),
-    };
+    //let session = ort::session::Session::builder()
+    //    .unwrap()
+    //    .commit_from_file(checkpoint)
+    //    .unwrap();
+    //let chess = backends::onnx::ChessOnnx {
+    //    session: std::cell::RefCell::new(session),
+    //};
 
     let mut board = chess::BoardState::new();
     let mut turn = chess::Color::White;
