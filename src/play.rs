@@ -20,7 +20,6 @@ mod queenmoves;
 mod trace;
 mod underpromotions;
 
-use backends::onnx::ChessOnnx;
 use backends::torch::ChessTS;
 
 #[cfg(feature = "jina")]
@@ -211,7 +210,7 @@ impl NNPlayer<backends::torch::ChessEP> {
 }
 
 #[cfg(feature = "onnx")]
-impl NNPlayer<ChessOnnx> {
+impl NNPlayer<backends::onnx::ChessOnnx> {
     fn load(
         _device: &str,
         checkpoint: &Path,
@@ -371,7 +370,8 @@ fn load_checkpoint<P: AsRef<Path>>(
             temperature,
             temperature_switch,
         )) as Box<SomeNNPlayer>,
-        Some("onnx") => Box::new(NNPlayer::<ChessOnnx>::load(
+        #[cfg(feature = "onnx")]
+        Some("onnx") => Box::new(NNPlayer::<backends::onnx::ChessOnnx>::load(
             device,
             path,
             n_rollout,
@@ -393,7 +393,8 @@ fn main() {
         //}
     }
 
-    if cfg!(feature = "onnx") {
+    #[cfg(feature = "onnx")]
+    {
         use ort::execution_providers::*;
         ort::init()
             .with_execution_providers([

@@ -6,6 +6,7 @@ use pyo3::types::PyCapsule;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::marker::PhantomData;
 
 pub mod backends;
 pub mod chess;
@@ -139,19 +140,20 @@ fn chess_encode_board(view: chess::Color, board: chess::Board) -> PyResult<(PyOb
 }
 
 #[allow(dead_code)]
-struct ChessEngineStateGeneric<T: Game> {
+struct ChessEngineStateGeneric<S, T> where S: game::State, T: Game<S> {
     chess: RefCell<T>,
     board: chess::BoardState,
     root: mcts::ArcRefNode<<chess::BoardState as game::State>::Step>,
     cursor: mcts::Cursor<<chess::BoardState as game::State>::Step>,
+    _marker: PhantomData<S>,
 }
 
 // NOTE: it is not possible to be Send safely without adding locks, as the cursor part
 // carries mutable data. But for the use case, it is just right to fake a Send impl,
 // so that we can wrap it into a PyCapsule.
-unsafe impl<T: Game> Send for ChessEngineStateGeneric<T> {}
+unsafe impl<S: game::State, T: Game<S>> Send for ChessEngineStateGeneric<S, T> {}
 
-type ChessEngineState = ChessEngineStateGeneric<backends::torch::ChessTS>
+type ChessEngineState = ChessEngineStateGeneric<chess::BoardState, backends::torch::ChessTS>;
 
 unsafe fn capsule_to_state<'a>(
     py: Python<'a>,
@@ -173,9 +175,9 @@ fn chess_play_new(
         _ => todo!("Unsupported device name"),
     };
 
-    let chess = chess::ChessTS {
-        model: tch::CModule::load_on_device(checkpoint, device).unwrap(),
-        device: device,
+    let chess = backends::torch::ChessTS {
+        model: tch::CModule::load_on_device(checkpoint, _device).unwrap(),
+        device: _device,
     };
     //let chess = backends::torch::ChessEP {
     //    model: aotinductor::ModelPackage::new(checkpoint).unwrap(),
@@ -224,6 +226,7 @@ fn chess_play_new(
         board: board,
         root: root,
         cursor: cursor,
+        _marker: PhantomData,
     });
 
     Python::attach(|py| {
